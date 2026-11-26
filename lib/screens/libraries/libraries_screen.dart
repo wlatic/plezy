@@ -1,3 +1,6 @@
+import '../../media/library_row_settings_client.dart';
+import '../../widgets/library_rows_sheet.dart';
+import '../../utils/provider_extensions.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -660,6 +663,22 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     }
   }
 
+  /// The client that stores [library]'s Recommended-tab row settings, when
+  /// its server supports them.
+  LibraryRowSettingsClient? _rowSettingsClientFor(MediaLibrary library) {
+    final client = context.tryGetMediaClientForServer(serverIdOrNull(library.serverId));
+    return client is LibraryRowSettingsClient && (client as LibraryRowSettingsClient).supportsLibraryRowSettings(library.kind)
+        ? client as LibraryRowSettingsClient
+        : null;
+  }
+
+  Future<void> _showLibraryRowsSheet(MediaLibrary library) async {
+    final client = _rowSettingsClientFor(library);
+    if (client == null) return;
+    final changed = await showLibraryRowsSheet(context, library: library, client: client);
+    if (changed && mounted) _refreshSelectedLibraryTabs();
+  }
+
   void _showLibraryManagementSheet() {
     showLibraryManagementSheet(
       context,
@@ -936,6 +955,13 @@ class _LibrariesScreenState extends State<LibrariesScreen>
                   ),
                 )
               : null,
+        ),
+      if (selectedLibrary != null && _rowSettingsClientFor(selectedLibrary) != null)
+        FocusableAction(
+          debugLabel: 'libraries_rows',
+          icon: Symbols.view_list_rounded,
+          tooltip: 'Customize rows',
+          onPressed: () => unawaited(_showLibraryRowsSheet(selectedLibrary)),
         ),
       if (selectedLibrary != null && MediaListPlaybackLauncher.canShuffleLibrary(selectedLibrary))
         FocusableAction(

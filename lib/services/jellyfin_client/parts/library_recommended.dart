@@ -6,12 +6,59 @@ part of '../../jellyfin_client.dart';
 /// collections and, when the Home Screen Sections plugin is installed, a
 /// Seerr Explore row for the first library of each kind.
 mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
+  /// Row settings live in the user's own `DisplayPreferences` row, one
+  /// `CustomPrefs` entry per library, so every device shows the same rows.
+  static const _rowSettingsPrefsId = 'plezy-library-rows';
+  static const _rowSettingsClient = 'plezy';
+
+  Map<String, String> get _rowSettingsQuery => {'userId': connection.userId, 'client': _rowSettingsClient};
+
+  bool supportsLibraryRowSettings(MediaKind? kind) =>
+      dialect == MediaBrowserDialect.jellyfin && (kind == MediaKind.movie || kind == MediaKind.show);
+
   @override
-  Future<List<MediaHub>> _recommendedLibraryRows(
+  Future<List<LibraryRowSetting>> fetchLibraryRowSettings(String libraryId, MediaKind kind) async {
+    try {
+      final response = await _http.get(
+        MediaBrowserPaths.displayPreferences(_rowSettingsPrefsId),
+        queryParameters: _rowSettingsQuery,
+      );
+      if (response.statusCode != 200) return LibraryRows.defaults(kind);
+      final data = response.data;
+      final custom = data is Map ? data['CustomPrefs'] : null;
+      return LibraryRows.parse(custom is Map ? custom[libraryId] as String? : null, kind);
+    } catch (e) {
+      if (e is MediaServerHttpException && e.isCancellation) rethrow;
+      return LibraryRows.defaults(kind);
+    }
+  }
+
+  /// Read-modify-write: the `POST` replaces the whole row, so other
+  /// libraries' entries travel back with the change.
+  Future<void> saveLibraryRowSettings(String libraryId, List<LibraryRowSetting> rows) async {
+    final path = MediaBrowserPaths.displayPreferences(_rowSettingsPrefsId);
+    final readResponse = await _http.get(path, queryParameters: _rowSettingsQuery);
+    throwIfHttpError(readResponse);
+    final current = readResponse.data;
+    final body = current is Map<String, dynamic>
+        ? Map<String, dynamic>.of(current)
+        : <String, dynamic>{'Id': _rowSettingsPrefsId, 'Client': _rowSettingsClient};
+    final custom = body['CustomPrefs'];
+    body['CustomPrefs'] = {
+      if (custom is Map) ...custom,
+      libraryId: LibraryRows.encode(rows),
+    };
+    final writeResponse = await _http.post(path, queryParameters: _rowSettingsQuery, body: body);
+    throwIfHttpError(writeResponse);
+  }
+
+  @override
+  Future<Map<String, MediaHub>> _recommendedLibraryRows(
     String libraryId, {
     required String libraryName,
     required MediaKind kind,
     required int limit,
+    required Set<String> enabled,
   }) async {
     final isMovies = kind == MediaKind.movie;
     final now = DateTime.now().toUtc();
@@ -35,7 +82,8 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
     );
 
     final titleType = isMovies ? 'Movie' : 'Series';
-    final recentlyPlayed = await _safeFetchItemsArray('/Items', {
+    final needsHistory = enabled.any({LibraryRows.because, LibraryRows.gems, LibraryRows.newEpisodes}.contains);
+    final recentlyPlayed = !needsHistory ? const <Map<String, dynamic>>[] : await _safeFetchItemsArray('/Items', {
       ...query({}),
       'IncludeItemTypes': isMovies ? 'Movie' : 'Episode',
       'IsPlayed': 'true',
@@ -49,17 +97,18 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
         if (played['SeriesId'] case final String id) id,
     };
 
-    final rows = await Future.wait<MediaHub?>([
+    Future<MediaHub?>? when(String id, Future<MediaHub?> Function() build) => enabled.contains(id) ? build() : null;
+    final pending = <String, Future<MediaHub?>?>{
       // Released / aired: newest first, nothing dated in the future.
-      _safeFetchItemsArray('/Items', query({
+      LibraryRows.released: when(LibraryRows.released, () => _safeFetchItemsArray('/Items', query({
         'IncludeItemTypes': titleType,
         'SortBy': 'PremiereDate',
         'SortOrder': 'Descending',
         'MaxPremiereDate': now.toIso8601String(),
-      })).then((items) => row('released', isMovies ? 'New Releases' : 'Latest Shows', items)),
+      })).then((items) => row('released', isMovies ? 'New Releases' : 'Latest Shows', items))),
+      // Recently aired episodes of shows the user has been watching, one per show.
       if (!isMovies)
-        // Recently aired episodes of shows the user has been watching, one per show.
-        _safeFetchItemsArray('/Items', {
+        LibraryRows.newEpisodes: when(LibraryRows.newEpisodes, () => _safeFetchItemsArray('/Items', {
           ...query({}),
           'IncludeItemTypes': 'Episode',
           'IsPlayed': 'false',
@@ -76,10 +125,13 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
               if (episode['SeriesId'] case final String id when startedSeries.contains(id) && seen.add(id)) episode,
           ];
           return row('newepisodes', 'New Episodes', fresh);
-        }),
-      _becauseYouWatched(recentlyPlayed, isMovies: isMovies, limit: limit, libraryId: libraryId),
+        })),
+      LibraryRows.because: when(
+        LibraryRows.because,
+        () => _becauseYouWatched(recentlyPlayed, isMovies: isMovies, limit: limit, libraryId: libraryId),
+      ),
       // Highly rated and not yet watched (for shows: not yet started).
-      _safeFetchItemsArray('/Items', query({
+      LibraryRows.gems: when(LibraryRows.gems, () => _safeFetchItemsArray('/Items', query({
         'IncludeItemTypes': titleType,
         'IsPlayed': 'false',
         'MinCommunityRating': '7.5',
@@ -91,16 +143,25 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
             if (isMovies || !startedSeries.contains(item['Id'])) item,
         ];
         return row('gems', isMovies ? 'Hidden Gems' : 'Unwatched Picks', unstarted);
-      }),
-      _safeFetchItemsArray('/Items', query({
+      })),
+      LibraryRows.topRated: when(LibraryRows.topRated, () => _safeFetchItemsArray('/Items', query({
         'IncludeItemTypes': titleType,
         'SortBy': isMovies ? 'CriticRating,CommunityRating' : 'CommunityRating',
         'SortOrder': 'Descending',
-      })).then((items) => row('toprated', 'Top Rated', items)),
-      if (isMovies) _startedCollections(limit: limit, libraryId: libraryId),
-      _exploreRow(libraryId, isMovies: isMovies, limit: limit),
-    ]);
-    return rows.whereType<MediaHub>().where((hub) => hub.items.isNotEmpty).toList();
+      })).then((items) => row('toprated', 'Top Rated', items))),
+      if (isMovies)
+        LibraryRows.collections: when(
+          LibraryRows.collections,
+          () => _startedCollections(limit: limit, libraryId: libraryId),
+        ),
+      LibraryRows.explore: when(LibraryRows.explore, () => _exploreRow(libraryId, isMovies: isMovies, limit: limit)),
+    };
+    final built = <String, MediaHub>{};
+    for (final MapEntry(:key, :value) in pending.entries) {
+      final hub = value == null ? null : await value;
+      if (hub != null && hub.items.isNotEmpty) built[key] = hub;
+    }
+    return built;
   }
 
   /// Titles similar to the most recently watched one.

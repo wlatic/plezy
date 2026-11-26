@@ -28,6 +28,8 @@ import 'library_events/media_browser_library_event_socket.dart';
 import '../media/media_file_info.dart';
 import '../media/media_hub.dart';
 import '../media/server_home_rows_client.dart';
+import '../media/library_row_settings_client.dart';
+import '../models/library_row_settings.dart';
 import '../models/catalog/catalog_item.dart';
 import '../media/media_item.dart';
 import '../media/media_kind.dart';
@@ -182,12 +184,14 @@ mixin _JellyfinClientInternals on MediaServerCacheMixin {
   /// only its own call sites pass.
   Future<List<Map<String, dynamic>>> _safeFetchItemsArray(String path, Map<String, dynamic> queryParameters);
   Future<MediaHub?> _homeScreenSectionHub(Map<String, dynamic> section, {required int index, required int limit});
-  Future<List<MediaHub>> _recommendedLibraryRows(
+  Future<Map<String, MediaHub>> _recommendedLibraryRows(
     String libraryId, {
     required String libraryName,
     required MediaKind kind,
     required int limit,
+    required Set<String> enabled,
   });
+  Future<List<LibraryRowSetting>> fetchLibraryRowSettings(String libraryId, MediaKind kind);
 
   /// Row metadata Jellyfin volunteers on `/Items` list responses but Emby
   /// withholds unless it is named in `Fields`.
@@ -294,6 +298,7 @@ class JellyfinClient
         _JellyfinLibraryRecommendedMethods
     implements
         ServerHomeRowsClient,
+        LibraryRowSettingsClient,
         MediaServerClient,
         SeasonEpisodePagingClient,
         MediaDeletionPermissionClient,

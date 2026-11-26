@@ -2014,10 +2014,26 @@ mixin _JellyfinBrowseMethods on _JellyfinClientInternals {
         dialect == MediaBrowserDialect.jellyfin &&
         (libraryKind == MediaKind.movie || libraryKind == MediaKind.show);
     if (!rich) return standard;
-    final extra = await _recommendedLibraryRows(libraryId, libraryName: libraryName, kind: libraryKind!, limit: limit);
+    final settings = await fetchLibraryRowSettings(libraryId, libraryKind!);
+    final enabled = {for (final row in settings) if (row.enabled) row.id};
+    final extra = await _recommendedLibraryRows(
+      libraryId,
+      libraryName: libraryName,
+      kind: libraryKind,
+      limit: limit,
+      enabled: enabled,
+    );
+    MediaHub? standardRow(String suffix) =>
+        standard.where((hub) => (hub.identifier ?? '').endsWith('.$suffix')).firstOrNull;
     return [
-      ...standard.where((hub) => !(hub.identifier ?? '').endsWith('.recent')),
-      ...extra,
+      for (final row in settings)
+        if (row.enabled)
+          if (switch (row.id) {
+            LibraryRows.continueWatching => standardRow('continue'),
+            LibraryRows.recentlyAdded => standardRow('recent'),
+            _ => extra[row.id],
+          } case final MediaHub hub)
+            hub,
     ];
   }
 

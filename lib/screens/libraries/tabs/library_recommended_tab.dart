@@ -1,3 +1,4 @@
+import '../../../media/library_row_settings_client.dart';
 import 'dart:async';
 import '../../../media/ids.dart';
 
@@ -203,9 +204,12 @@ class _LibraryRecommendedTabState extends BaseLibraryTabState<MediaHub, LibraryR
           );
     hubs.removeWhere((hub) => hub.items.isEmpty);
 
-    // Move Continue Watching hub to the front if present
+    // Move Continue Watching hub to the front if present, unless the user
+    // ordered this library's rows themselves.
+    final userOrdered = client is LibraryRowSettingsClient &&
+        (client as LibraryRowSettingsClient).supportsLibraryRowSettings(widget.library.kind);
     final cwIndex = hubs.indexWhere(_isContinueWatchingHub);
-    if (cwIndex > 0) {
+    if (cwIndex > 0 && !userOrdered) {
       final cwHub = hubs.removeAt(cwIndex);
       hubs.insert(0, cwHub);
     }
