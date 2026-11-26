@@ -1,3 +1,4 @@
+import '../providers/holyarrs_account_provider.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -218,9 +219,21 @@ class _ProfileSessionScreenState extends State<ProfileSessionScreen> {
                   return provider;
                 },
               ),
-              ChangeNotifierProxyProvider3<
+              ChangeNotifierProvider(
+                create: (context) {
+                  final provider = HolyArrsAccountProvider();
+                  unawaited(
+                    provider.onActiveProfileChanged(activeId).catchError((Object e, StackTrace s) {
+                      appLogger.w('HolyArrs profile hydrate failed', error: e, stackTrace: s);
+                    }),
+                  );
+                  return provider;
+                },
+              ),
+              ChangeNotifierProxyProvider4<
                 TrackersProvider,
                 SeerrAccountProvider,
+                HolyArrsAccountProvider,
                 ActiveProfileProvider,
                 CatalogSourcesProvider
               >(
@@ -233,9 +246,9 @@ class _ProfileSessionScreenState extends State<ProfileSessionScreen> {
                   );
                   return provider;
                 },
-                update: (context, trackers, seerr, activeProfile, previous) {
+                update: (context, trackers, seerr, holyarrs, activeProfile, previous) {
                   final provider = previous ?? _createCatalogSourcesProvider(context);
-                  provider.update(trackers, seerr);
+                  provider.update(trackers, seerr, holyarrs);
                   unawaited(provider.onProfileBindingStateChanged(activeProfile.isBinding));
                   return provider;
                 },

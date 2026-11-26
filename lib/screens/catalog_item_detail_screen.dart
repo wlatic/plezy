@@ -1,3 +1,5 @@
+import '../services/catalog/holyarrs_catalog_source.dart';
+import '../widgets/holyarrs_request_sheet.dart';
 import 'dart:async';
 
 import 'package:collection/collection.dart';
@@ -419,7 +421,13 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
   /// Fribb mapping at row time, but Plex Discover's hub/search/related
   /// endpoints ignore includeGuids, so a Plex item's tmdb id only arrives
   /// with the detail fetch (issue #1959).
-  bool get _canRequest => _requestSource != null && _item.ids.tmdb != null;
+  bool get _canRequest => (_holyarrsRequestSource != null || _requestSource != null) && _item.ids.tmdb != null;
+
+  /// HolyArrs takes over requests from Seerr when it is connected.
+  HolyArrsCatalogSource? get _holyarrsRequestSource {
+    final holyarrs = context.read<CatalogSourcesProvider>().holyarrsSource;
+    return holyarrs != null && holyarrs.canRequest(widget.item.kind) ? holyarrs : null;
+  }
 
   bool get _hasActions => _watchlistSource != null || _canRequest || _hasTrailer;
 
@@ -1387,6 +1395,7 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
     // Subscriptions for [_requestSource]: the source itself (disconnect) and
     // the permission mask (grant/revoke), both adopted in place upstream.
     context.select<CatalogSourcesProvider, SeerrCatalogSource?>((sources) => sources.seerrSource);
+    context.select<CatalogSourcesProvider, HolyArrsCatalogSource?>((sources) => sources.holyarrsSource);
     context.select<SeerrAccountProvider?, int?>((account) => account?.permissions);
     // The backdrop strip spans the full screen width (Positioned left/right: 0
     // below), and backdropFor is width-keyed: target the rendered width, not
@@ -1521,7 +1530,23 @@ class _CatalogItemDetailScreenState extends State<CatalogItemDetailScreen> {
                                                       : t.explore.addToWatchlist,
                                                   onPressed: () => unawaited(_toggleWatchlist()),
                                                 ),
-                                              if (_requestSource case final SeerrCatalogSource seerr
+                                              if (_holyarrsRequestSource case final HolyArrsCatalogSource holyarrs
+                                                  when tmdbId != null)
+                                                FocusableAction(
+                                                  debugLabel: 'catalog_request',
+                                                  icon: Symbols.download_rounded,
+                                                  tooltip: t.seerr.request,
+                                                  onPressed: () => unawaited(
+                                                    showHolyArrsRequestSheet(
+                                                      hostContext,
+                                                      source: holyarrs,
+                                                      kind: item.kind,
+                                                      tmdbId: tmdbId,
+                                                      title: item.title,
+                                                    ),
+                                                  ),
+                                                )
+                                              else if (_requestSource case final SeerrCatalogSource seerr
                                                   when tmdbId != null)
                                                 FocusableAction(
                                                   debugLabel: 'catalog_request',

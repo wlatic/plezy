@@ -1,3 +1,6 @@
+import '../services/catalog/holyarrs_catalog_source.dart';
+import '../services/holyarrs/holyarrs_client.dart';
+import 'holyarrs_account_provider.dart';
 import 'dart:async';
 
 import 'package:collection/collection.dart';
@@ -118,6 +121,9 @@ class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifie
     MdblistCatalogSource.new,
   );
   final _CatalogSourceBinding<SeerrClient, SeerrCatalogSource> _seerr = _CatalogSourceBinding(SeerrCatalogSource.new);
+  final _CatalogSourceBinding<HolyArrsClient, HolyArrsCatalogSource> _holyarrs = _CatalogSourceBinding(
+    HolyArrsCatalogSource.new,
+  );
   int _profileBindingGeneration = 0;
   int _plexSessionGeneration = 0;
   bool? _lastProfileBindingState;
@@ -146,6 +152,7 @@ class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifie
     ?_mdblist.source,
     ?_plex.source,
     ?_seerr.source,
+    ?_holyarrs.source,
   ];
 
   bool get hasAnySource => connectedSources.isNotEmpty;
@@ -154,6 +161,10 @@ class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifie
   /// Request action and sheet) that need Seerr's client beyond the
   /// [CatalogSource] interface.
   SeerrCatalogSource? get seerrSource => _seerr.source;
+
+  /// The connected HolyArrs source, which takes over requests from Seerr
+  /// when both are connected.
+  HolyArrsCatalogSource? get holyarrsSource => _holyarrs.source;
 
   /// The source whose rows the Explore tab shows: the user's persisted pick
   /// when it is still connected, otherwise the first connected source.
@@ -347,7 +358,7 @@ class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifie
 
   /// Proxy-provider update hook: rebuild a source when its catalog client
   /// was rebound (connect/disconnect/profile switch).
-  void update(TrackersProvider trackers, SeerrAccountProvider seerr) {
+  void update(TrackersProvider trackers, SeerrAccountProvider seerr, [HolyArrsAccountProvider? holyarrs]) {
     var changed = false;
     changed = _trakt.update(trackers.traktCatalogClient) || changed;
     changed = _mal.update(trackers.malCatalogClient) || changed;
@@ -355,6 +366,7 @@ class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifie
     changed = _simkl.update(trackers.simklCatalogClient) || changed;
     changed = _mdblist.update(trackers.mdblistCatalogClient) || changed;
     changed = _seerr.update(seerr.catalogClient) || changed;
+    changed = _holyarrs.update(holyarrs?.client) || changed;
     if (changed) {
       _invalidateWatchlistCandidates();
       safeNotifyListeners();
@@ -368,6 +380,7 @@ class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifie
     _mal.dispose();
     _anilist.dispose();
     _mdblist.dispose();
+    _holyarrs.dispose();
     _simkl.dispose();
     _seerr.dispose();
     super.dispose();

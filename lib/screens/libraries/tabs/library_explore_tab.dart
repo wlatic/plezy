@@ -61,7 +61,8 @@ class _LibraryExploreTabState extends BaseLibraryTabState<MediaHub, LibraryExplo
   IconData get emptyIcon => Symbols.explore_rounded;
 
   @override
-  String get emptyMessage => 'Connect Seerr (or AniList for anime) in Settings to explore titles you do not have yet.';
+  String get emptyMessage =>
+      'Connect HolyArrs or Seerr (or AniList for anime) in Settings to explore titles you do not have yet.';
 
   @override
   String get errorContext => 'Explore';
@@ -85,10 +86,29 @@ class _LibraryExploreTabState extends BaseLibraryTabState<MediaHub, LibraryExplo
   Future<void> loadItems() => runLoadTransaction(_loadRows);
 
   Future<List<MediaHub>> _loadRows() async {
-    final source = _sourceFor(context.read<CatalogSourcesProvider>());
-    if (source == null) return const [];
+    final sources = context.read<CatalogSourcesProvider>();
     final kind = widget.library.kind;
     final serverId = widget.library.serverId;
+    // HolyArrs's own Explore rows, already split into movies and shows.
+    final holyarrs = sources.holyarrsSource;
+    if (holyarrs != null && !_isAnime) {
+      final hubs = await holyarrs.fetchKindHubs(kind, limit: ExploreProvider.rowLimit);
+      return [
+        for (final hub in hubs)
+          MediaHub(
+            id: 'library-explore.${widget.library.id}.${hub.id}',
+            identifier: 'library-explore.${widget.library.id}.${hub.id}',
+            title: hub.title,
+            type: 'mixed',
+            items: [for (final item in hub.page.items) item.toMediaItem()],
+            size: hub.page.items.length,
+            more: false,
+            serverId: serverId,
+          ),
+      ];
+    }
+    final source = _sourceFor(sources);
+    if (source == null) return const [];
 
     MediaHub hub(String id, String title, List<CatalogItem> items) {
       final matching = [

@@ -1,3 +1,5 @@
+import '../../providers/holyarrs_account_provider.dart';
+import 'holyarrs_settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
@@ -39,7 +41,7 @@ class ServicesSettingsScreen extends StatelessWidget {
                 ).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ),
-            SettingsGroup(children: [for (final info in TrackerServiceInfo.all) _TrackerHubRow(info), _seerr()]),
+            SettingsGroup(children: [for (final info in TrackerServiceInfo.all) _TrackerHubRow(info), _seerr(), _holyarrs()]),
             if (DiscordRPCService.isAvailable)
               SettingsGroup(
                 title: t.services.integrations,
@@ -58,6 +60,15 @@ class ServicesSettingsScreen extends StatelessWidget {
       ],
     );
   }
+
+  Widget _holyarrs() => Consumer<HolyArrsAccountProvider>(
+    builder: (context, account, _) => _ServiceHubRow(
+      leading: const CatalogSourceLogo(CatalogSourceId.holyarrs, size: 24),
+      title: 'HolyArrs',
+      username: account.isConnected ? account.displayName : null,
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HolyArrsSettingsScreen())),
+    ),
+  );
 
   Widget _seerr() => Consumer<SeerrAccountProvider>(
     builder: (context, account, _) => _ServiceHubRow(
