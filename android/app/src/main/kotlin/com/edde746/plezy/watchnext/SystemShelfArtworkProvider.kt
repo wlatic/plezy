@@ -1,5 +1,6 @@
 package com.edde746.plezy.watchnext
 
+import com.edde746.plezy.BuildConfig
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
