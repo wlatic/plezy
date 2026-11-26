@@ -1996,7 +1996,7 @@ mixin _JellyfinBrowseMethods on _JellyfinClientInternals {
     // Issued in parallel so the recommended tab loads in one round-trip.
     // When the caller knows the library kind, skip NextUp for movie libraries;
     // Jellyfin can otherwise spend time scanning TV state only to return [].
-    return _playbackHubSet(
+    final standard = await _playbackHubSet(
       library: (id: libraryId, name: libraryName),
       idPrefix: 'library.$libraryId',
       limit: limit,
@@ -2008,6 +2008,17 @@ mixin _JellyfinBrowseMethods on _JellyfinClientInternals {
       recentTitle: t.discover.recentlyAddedIn(library: libraryName),
       diagnostics: diagnostics,
     );
+    // Movie and TV Recommended tabs: keep Continue Watching, replace the
+    // date-added Recently Added row with release-date and taste rows.
+    final rich = includePlaybackHubs &&
+        dialect == MediaBrowserDialect.jellyfin &&
+        (libraryKind == MediaKind.movie || libraryKind == MediaKind.show);
+    if (!rich) return standard;
+    final extra = await _recommendedLibraryRows(libraryId, libraryName: libraryName, kind: libraryKind!, limit: limit);
+    return [
+      ...standard.where((hub) => !(hub.identifier ?? '').endsWith('.recent')),
+      ...extra,
+    ];
   }
 
   /// Latest + Continue Watching + Next Up row set shared by the home and

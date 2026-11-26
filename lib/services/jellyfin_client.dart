@@ -103,6 +103,7 @@ part 'jellyfin_client/parts/live_tv_dvr.dart';
 part 'jellyfin_client/parts/images_downloads.dart';
 part 'jellyfin_client/parts/metadata_edit.dart';
 part 'jellyfin_client/parts/home_screen_sections.dart';
+part 'jellyfin_client/parts/library_recommended.dart';
 
 /// Canonical declarations of the [JellyfinClient] internals that the `part`
 /// mixins call into.
@@ -180,6 +181,13 @@ mixin _JellyfinClientInternals on MediaServerCacheMixin {
   /// implementation widens it with optional retry/abort/diagnostics knobs that
   /// only its own call sites pass.
   Future<List<Map<String, dynamic>>> _safeFetchItemsArray(String path, Map<String, dynamic> queryParameters);
+  Future<MediaHub?> _homeScreenSectionHub(Map<String, dynamic> section, {required int index, required int limit});
+  Future<List<MediaHub>> _recommendedLibraryRows(
+    String libraryId, {
+    required String libraryName,
+    required MediaKind kind,
+    required int limit,
+  });
 
   /// Row metadata Jellyfin volunteers on `/Items` list responses but Emby
   /// withholds unless it is named in `Fields`.
@@ -282,7 +290,8 @@ class JellyfinClient
         _JellyfinLiveTvMethods,
         _JellyfinImageDownloadMethods,
         _JellyfinMetadataEditMethods,
-        _JellyfinHomeScreenSectionsMethods
+        _JellyfinHomeScreenSectionsMethods,
+        _JellyfinLibraryRecommendedMethods
     implements
         ServerHomeRowsClient,
         MediaServerClient,

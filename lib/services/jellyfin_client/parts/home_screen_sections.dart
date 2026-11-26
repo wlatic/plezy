@@ -49,6 +49,7 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
     return hubs.whereType<MediaHub>().where((hub) => hub.items.isNotEmpty).toList();
   }
 
+  @override
   Future<MediaHub?> _homeScreenSectionHub(
     Map<String, dynamic> section, {
     required int index,
