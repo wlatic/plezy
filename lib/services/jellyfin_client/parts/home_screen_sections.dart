@@ -42,6 +42,7 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
     }).toList();
     if (wanted.isEmpty) return null;
 
+    appLogger.i('Home Screen Sections: ${sections.length} sections, using ${wanted.map((s) => s['Section']).join(', ')}');
     final hubs = await Future.wait([
       for (var i = 0; i < wanted.length; i++) _homeScreenSectionHub(wanted[i], index: i, limit: limit),
     ]);
@@ -64,13 +65,17 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
           if (additionalData is String && additionalData.isNotEmpty) 'AdditionalData': additionalData,
         },
       );
-      if (response.statusCode != 200) return null;
+      if (response.statusCode != 200) {
+        appLogger.w('Home Screen Sections: $type returned HTTP ${response.statusCode}');
+        return null;
+      }
       rows = _itemsArray(response.data);
     } catch (e) {
       if (e is MediaServerHttpException && e.isCancellation) rethrow;
       return null;
     }
     final title = section['DisplayText'] as String? ?? type;
+    appLogger.i('Home Screen Sections: $type has ${rows.length} items');
     final items = <MediaItem>[
       for (final row in rows.take(limit))
         if (_homeScreenSectionItem(row) case final MediaItem item) item,
