@@ -302,8 +302,12 @@ android {
     targetCompatibility = JavaVersion.VERSION_17
   }
 
+  buildFeatures {
+    buildConfig = true
+  }
+
   defaultConfig {
-    applicationId = "com.edde746.plezy"
+    applicationId = "com.wlatic.plezyhome"
     minSdk = 25 // Fire OS 6.x (API 25); the mpv-android AAR shares the same floor
     targetSdk = flutter.targetSdkVersion
     versionCode = flutter.versionCode
