@@ -2096,6 +2096,31 @@ mixin _JellyfinBrowseMethods on _JellyfinClientInternals {
 
     final results = await Future.wait([latestFuture, resumeRowsFuture, nextUpRowsFuture]);
 
+    // A library's Recommended tab shows one row, like home: in-progress items
+    // first, then each show's next episode, one entry per show.
+    if (library != null && includeNextUp) {
+      final merged = _mergeContinueWatchingAndNextUp(
+        resume: results[1].map(mapItem).whereType<MediaItem>().toList(),
+        nextUp: results[2].map(mapItem).whereType<MediaItem>().toList(),
+        limit: limit,
+      );
+      return [
+        if (merged.isNotEmpty)
+          MediaHub(
+            id: '$idPrefix.continue',
+            identifier: '$idPrefix.continue',
+            title: continueTitle,
+            type: 'mixed',
+            items: merged,
+            size: merged.length,
+            more: false,
+            serverId: serverId,
+            serverName: serverName,
+          ),
+        hub('recent', recentTitle, 'mixed', results.first),
+      ].where((h) => h.items.isNotEmpty).toList();
+    }
+
     return [
       // The Emby halves are carved out of the shared window rather than capped by
       // the request, so slice both to the requested preview size the way the

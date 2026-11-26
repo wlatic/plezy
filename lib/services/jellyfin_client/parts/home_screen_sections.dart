@@ -75,11 +75,12 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
       return null;
     }
     final title = section['DisplayText'] as String? ?? type;
-    appLogger.i('Home Screen Sections: $type has ${rows.length} items');
+    final firstType = rows.isEmpty ? '-' : '${rows.first['Type']}';
     final items = <MediaItem>[
       for (final row in rows.take(limit))
         if (_homeScreenSectionItem(row) case final MediaItem item) item,
     ];
+    appLogger.i('Home Screen Sections: $type has ${rows.length} rows, ${items.length} mapped (first type $firstType)');
     return MediaHub(
       id: 'hss.$index.$type',
       identifier: 'hss.$index.$type',
