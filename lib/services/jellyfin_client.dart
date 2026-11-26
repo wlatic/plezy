@@ -27,6 +27,8 @@ import 'library_events/library_event_socket.dart';
 import 'library_events/media_browser_library_event_socket.dart';
 import '../media/media_file_info.dart';
 import '../media/media_hub.dart';
+import '../media/server_home_rows_client.dart';
+import '../models/catalog/catalog_item.dart';
 import '../media/media_item.dart';
 import '../media/media_kind.dart';
 import '../media/media_library.dart';
@@ -100,6 +102,7 @@ part 'jellyfin_client/parts/live_tv.dart';
 part 'jellyfin_client/parts/live_tv_dvr.dart';
 part 'jellyfin_client/parts/images_downloads.dart';
 part 'jellyfin_client/parts/metadata_edit.dart';
+part 'jellyfin_client/parts/home_screen_sections.dart';
 
 /// Canonical declarations of the [JellyfinClient] internals that the `part`
 /// mixins call into.
@@ -278,8 +281,10 @@ class JellyfinClient
         _JellyfinFileInfoMethods,
         _JellyfinLiveTvMethods,
         _JellyfinImageDownloadMethods,
-        _JellyfinMetadataEditMethods
+        _JellyfinMetadataEditMethods,
+        _JellyfinHomeScreenSectionsMethods
     implements
+        ServerHomeRowsClient,
         MediaServerClient,
         SeasonEpisodePagingClient,
         MediaDeletionPermissionClient,
