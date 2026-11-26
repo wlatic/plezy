@@ -30,4 +30,11 @@ void main() {
     expect(LibraryRows.parse('not json', MediaKind.show).length, LibraryRows.defaults(MediaKind.show).length);
     expect(LibraryRows.parse('{"a":1}', MediaKind.show).first.id, LibraryRows.continueWatching);
   });
+
+  test('Explore tab is a switch in the settings, on by default', () {
+    for (final kind in [MediaKind.movie, MediaKind.show]) {
+      expect(LibraryRows.defaults(kind).last.id, LibraryRows.exploreTab);
+      expect(LibraryRows.defaults(kind).last.enabled, isTrue);
+    }
+  });
 }

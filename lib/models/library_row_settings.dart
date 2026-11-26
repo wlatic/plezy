@@ -27,6 +27,9 @@ abstract final class LibraryRows {
   static const explore = 'explore';
   static const recentlyAdded = 'recent';
 
+  /// Not a row: whether the library shows an Explore tab.
+  static const exploreTab = 'exploretab';
+
   static List<LibraryRowSetting> defaults(MediaKind kind) => kind == MediaKind.movie
       ? const [
           LibraryRowSetting(continueWatching),
@@ -37,6 +40,7 @@ abstract final class LibraryRows {
           LibraryRowSetting(collections),
           LibraryRowSetting(explore),
           LibraryRowSetting(recentlyAdded, enabled: false),
+          LibraryRowSetting(exploreTab),
         ]
       : const [
           LibraryRowSetting(continueWatching),
@@ -47,6 +51,7 @@ abstract final class LibraryRows {
           LibraryRowSetting(topRated),
           LibraryRowSetting(explore),
           LibraryRowSetting(recentlyAdded, enabled: false),
+          LibraryRowSetting(exploreTab),
         ];
 
   static String title(String id, MediaKind kind) => switch (id) {
@@ -57,8 +62,9 @@ abstract final class LibraryRows {
     gems => kind == MediaKind.movie ? 'Hidden Gems' : 'Unwatched Picks',
     topRated => 'Top Rated',
     collections => 'Finish the Collection',
-    explore => 'Explore',
+    explore => 'Explore row',
     recentlyAdded => 'Recently Added',
+    exploreTab => 'Explore tab',
     _ => id,
   };
 

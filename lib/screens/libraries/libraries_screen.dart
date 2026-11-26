@@ -1,3 +1,5 @@
+import '../../models/library_row_settings.dart';
+import 'tabs/library_explore_tab.dart';
 import '../../media/library_row_settings_client.dart';
 import '../../widgets/library_rows_sheet.dart';
 import '../../utils/provider_extensions.dart';
@@ -43,16 +45,22 @@ import 'tabs/library_genres_tab.dart';
 import 'tabs/library_playlists_tab.dart';
 import 'tabs/base_library_tab.dart';
 
-enum LibraryTabType { recommended, browse, collections, playlists, genres }
+enum LibraryTabType { recommended, browse, collections, playlists, genres, explore }
 
-List<LibraryTabType> visibleLibraryTabs(MediaLibrary library) {
+List<LibraryTabType> visibleLibraryTabs(MediaLibrary library, {bool explore = false}) {
   if (library.isShared) return [LibraryTabType.browse, LibraryTabType.playlists];
   // Genres filter the library's own type; only movie and show libraries
   // browse a type both backends tag with genres.
   final hasGenres = library.kind == MediaKind.movie || library.kind == MediaKind.show;
+  // Explore sits right after Recommended, only on movie and show libraries
+  // whose row settings switch it on.
+  final hasExplore = explore && hasGenres;
   return [
     for (final tab in LibraryTabType.values)
-      if (tab != LibraryTabType.genres || hasGenres) tab,
+      if (tab != LibraryTabType.explore && (tab != LibraryTabType.genres || hasGenres)) ...[
+        tab,
+        if (tab == LibraryTabType.recommended && hasExplore) LibraryTabType.explore,
+      ],
   ];
 }
 
@@ -80,6 +88,9 @@ class _LibrariesScreenState extends State<LibrariesScreen>
         TabNavigationMixin,
         TabVisibilityAware {
   final _recommendedTabKey = GlobalKey();
+  final _exploreTabKey = GlobalKey();
+  /// Whether each library's Explore tab is switched on, keyed by library global key.
+  final Map<String, bool> _exploreTabEnabled = {};
   final _browseTabKey = GlobalKey();
   final _collectionsTabKey = GlobalKey();
   final _genresTabKey = GlobalKey();
@@ -333,6 +344,7 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     if (index < 0 || index >= _visibleTabs.length) return null;
     return switch (_visibleTabs[index]) {
       LibraryTabType.recommended => _recommendedTabKey.currentState,
+      LibraryTabType.explore => _exploreTabKey.currentState,
       LibraryTabType.browse => _browseTabKey.currentState,
       LibraryTabType.collections => _collectionsTabKey.currentState,
       LibraryTabType.genres => _genresTabKey.currentState,
@@ -438,6 +450,7 @@ class _LibrariesScreenState extends State<LibrariesScreen>
 
   String _getTabLabel(LibraryTabType type) => switch (type) {
     LibraryTabType.recommended => t.libraries.tabs.recommended,
+    LibraryTabType.explore => 'Explore',
     LibraryTabType.browse => t.libraries.tabs.browse,
     LibraryTabType.collections => t.libraries.tabs.collections,
     LibraryTabType.genres => t.libraries.tabs.genres,
@@ -454,6 +467,15 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     return switch (type) {
       LibraryTabType.recommended => LibraryRecommendedTab(
         key: _recommendedTabKey,
+        library: library,
+        isActive: isActive,
+        suppressAutoFocus: suppressAutoFocus,
+        onDataLoaded: () => _handleTabDataLoaded(tabIndex),
+        onBack: focusTabBar,
+        onNavigateToChrome: focusTabBar,
+      ),
+      LibraryTabType.explore => LibraryExploreTab(
+        key: _exploreTabKey,
         library: library,
         isActive: isActive,
         suppressAutoFocus: suppressAutoFocus,
@@ -524,7 +546,10 @@ class _LibrariesScreenState extends State<LibrariesScreen>
 
     // Update visible tabs and state in the same synchronous block so no
     // intermediate rebuild can see a mismatched controller/key pair.
-    _updateVisibleTabs(visibleLibraryTabs(selectedLibrary));
+    _updateVisibleTabs(
+      visibleLibraryTabs(selectedLibrary, explore: _exploreTabEnabled[selectedLibrary.globalKey] ?? false),
+    );
+    unawaited(_loadExploreTabSetting(selectedLibrary));
 
     _updateState(() {
       _selectedLibraryGlobalKey = libraryGlobalKey;
@@ -676,7 +701,21 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     final client = _rowSettingsClientFor(library);
     if (client == null) return;
     final changed = await showLibraryRowsSheet(context, library: library, client: client);
-    if (changed && mounted) _refreshSelectedLibraryTabs();
+    if (!changed || !mounted) return;
+    _refreshSelectedLibraryTabs();
+    await _loadExploreTabSetting(library);
+  }
+
+  /// Reads whether [library]'s Explore tab is on and shows or hides the tab.
+  Future<void> _loadExploreTabSetting(MediaLibrary library) async {
+    final client = _rowSettingsClientFor(library);
+    if (client == null) return;
+    final rows = await client.fetchLibraryRowSettings(library.id, library.kind);
+    final enabled = rows.any((row) => row.id == LibraryRows.exploreTab && row.enabled);
+    if (!mounted || _exploreTabEnabled[library.globalKey] == enabled) return;
+    _exploreTabEnabled[library.globalKey] = enabled;
+    if (_selectedLibraryGlobalKey != library.globalKey) return;
+    setState(() => _updateVisibleTabs(visibleLibraryTabs(library, explore: enabled)));
   }
 
   void _showLibraryManagementSheet() {
