@@ -55,6 +55,27 @@ class HolyArrsCatalogSource implements CatalogSource, CatalogHubSource {
     ];
   }
 
+  /// The genre pages for [genreIds], in order, as rows. A row title already
+  /// shown by an earlier genre (a shared mood row) is not repeated.
+  Future<List<CatalogHub>> fetchGenreHubs(MediaKind kind, List<int> genreIds, {int limit = 25}) async {
+    final type = kind == MediaKind.movie ? 'movies' : 'shows';
+    final (pages, owned) = await (
+      Future.wait([for (final genre in genreIds) client.genreRows(type, genre)]),
+      _ownedIndex(),
+    ).wait;
+    final seenTitles = <String>{};
+    return [
+      for (var i = 0; i < pages.length; i++)
+        for (final row in pages[i])
+          if (row.items.isNotEmpty && seenTitles.add(row.title.toLowerCase()))
+            CatalogHub(
+              id: '$type:genre:${genreIds[i]}:${row.id}',
+              title: row.title,
+              page: CatalogPage(items: [for (final title in row.items.take(limit)) toCatalogItem(title, owned: owned)]),
+            ),
+    ];
+  }
+
   Future<LibraryTmdbIndex?> _ownedIndex() async {
     try {
       return await libraryIndex?.get();

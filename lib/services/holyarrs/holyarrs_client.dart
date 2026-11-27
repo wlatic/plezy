@@ -253,6 +253,26 @@ class HolyArrsClient {
     ];
   }
 
+  /// HolyArrs's page for one TMDB genre of `movies` or `shows`: Trending,
+  /// Best new, Because you have, Top-rated classics and mood rows.
+  Future<List<HolyArrsRow>> genreRows(String type, int genreId) async {
+    final data = await _send('GET', '/api/v1/explore/genre', query: {'type': type, 'genre': '$genreId'});
+    final rows = data is Map ? data['rows'] : null;
+    if (rows is! List) return const [];
+    return [
+      for (final row in rows)
+        if (row is Map && row['id'] is String && row['title'] is String)
+          HolyArrsRow(
+            id: row['id'] as String,
+            title: row['title'] as String,
+            items: [
+              for (final item in (row['items'] as List? ?? const []))
+                if (HolyArrsTitle.fromJson(item) case final HolyArrsTitle title) title,
+            ],
+          ),
+    ];
+  }
+
   /// A movie's or show's full details, from HolyArrs's TMDB cache.
   Future<HolyArrsTitleDetail?> titleDetail({required int tmdbId, required bool isShow}) async {
     final data = await _send('GET', '/api/v1/metadata/${isShow ? 'show' : 'movie'}/$tmdbId');

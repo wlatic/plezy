@@ -54,7 +54,10 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
 
   /// Read-modify-write: the `POST` replaces the whole row, so other
   /// libraries' entries travel back with the change.
-  Future<void> saveLibraryRowSettings(String libraryId, List<LibraryRowSetting> rows) async {
+  Future<void> saveLibraryRowSettings(String libraryId, List<LibraryRowSetting> rows) =>
+      _saveRowPrefs({libraryId: LibraryRows.encode(rows)});
+
+  Future<void> _saveRowPrefs(Map<String, String> entries) async {
     final path = MediaBrowserPaths.displayPreferences(_rowSettingsPrefsId);
     final readResponse = await _http.get(path, queryParameters: _rowSettingsQuery);
     throwIfHttpError(readResponse);
@@ -63,9 +66,39 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
         ? Map<String, dynamic>.of(current)
         : <String, dynamic>{'Id': _rowSettingsPrefsId, 'Client': _rowSettingsClient};
     final custom = body['CustomPrefs'];
-    body['CustomPrefs'] = {if (custom is Map) ...custom, libraryId: LibraryRows.encode(rows)};
+    body['CustomPrefs'] = {if (custom is Map) ...custom, ...entries};
     final writeResponse = await _http.post(path, queryParameters: _rowSettingsQuery, body: body);
     throwIfHttpError(writeResponse);
+  }
+
+  static String _exploreFocusKey(String libraryId) => 'explore:$libraryId';
+
+  Future<LibraryExploreFocus?> fetchLibraryExploreFocus(String libraryId) async {
+    try {
+      final response = await _http.get(
+        MediaBrowserPaths.displayPreferences(_rowSettingsPrefsId),
+        queryParameters: _rowSettingsQuery,
+      );
+      if (response.statusCode != 200) return null;
+      final custom = response.data is Map ? (response.data as Map)['CustomPrefs'] : null;
+      return LibraryExploreFocus.parse(custom is Map ? custom[_exploreFocusKey(libraryId)] as String? : null);
+    } catch (e) {
+      if (e is MediaServerHttpException && e.isCancellation) rethrow;
+      return null;
+    }
+  }
+
+  Future<void> saveLibraryExploreFocus(String libraryId, MediaKind kind, LibraryExploreFocus? focus) async {
+    final focused = focus != null && !focus.isEmpty;
+    final entries = {_exploreFocusKey(libraryId): focused ? focus.encode() : ''};
+    if (focused) {
+      // Choosing what to explore is choosing to have the tab.
+      final rows = await fetchLibraryRowSettings(libraryId, kind);
+      entries[libraryId] = LibraryRows.encode([
+        for (final row in rows) row.id == LibraryRows.exploreTab ? row.copyWith(enabled: true) : row,
+      ]);
+    }
+    await _saveRowPrefs(entries);
   }
 
   @override

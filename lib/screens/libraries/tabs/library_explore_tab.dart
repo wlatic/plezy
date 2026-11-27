@@ -11,6 +11,8 @@ import '../../../media/media_hub.dart';
 import '../../../media/media_item.dart';
 import '../../../media/media_kind.dart';
 import '../../../media/server_home_rows_client.dart';
+import '../../../media/library_row_settings_client.dart';
+import '../../../models/library_explore_focus.dart';
 import '../../../models/catalog/catalog_item.dart';
 import '../../../providers/catalog_sources_provider.dart';
 import '../../../providers/explore_provider.dart';
@@ -90,10 +92,25 @@ class _LibraryExploreTabState extends BaseLibraryTabState<MediaHub, LibraryExplo
     final sources = context.read<CatalogSourcesProvider>();
     final kind = widget.library.kind;
     final serverId = widget.library.serverId;
+    final serverClient = context.tryGetMediaClientForServer(serverIdOrNull(serverId));
+    final focus = serverClient is LibraryRowSettingsClient
+        ? await (serverClient as LibraryRowSettingsClient).fetchLibraryExploreFocus(widget.library.id)
+        : null;
+    if (focus != null && mounted) return _focusedRows(sources, focus);
     // HolyArrs's own Explore rows, already split into movies and shows.
     final holyarrs = sources.holyarrsSource;
-    if (holyarrs != null && !_isAnime) {
-      final hubs = await holyarrs.fetchKindHubs(kind, limit: ExploreProvider.rowLimit);
+    final holyarrsHubs = holyarrs == null || _isAnime
+        ? null
+        : await holyarrs
+              .fetchKindHubs(kind, limit: ExploreProvider.rowLimit)
+              .then<List<CatalogHub>?>((h) => h)
+              .catchError((Object e) {
+                // A revoked key or HolyArrs being down falls back to Seerr.
+                appLogger.w('Library explore: HolyArrs rows failed', error: e);
+                return null;
+              });
+    if (holyarrsHubs != null) {
+      final hubs = holyarrsHubs;
       return [
         for (final hub in hubs)
           MediaHub(
@@ -147,6 +164,47 @@ class _LibraryExploreTabState extends BaseLibraryTabState<MediaHub, LibraryExplo
     return hubs.where((hub) => hub.items.isNotEmpty).toList();
   }
 
+  /// The library's chosen kind and genres: HolyArrs's genre pages, or one
+  /// popular row per genre from Seerr.
+  Future<List<MediaHub>> _focusedRows(CatalogSourcesProvider sources, LibraryExploreFocus focus) async {
+    MediaHub hub(String id, String title, List<CatalogItem> items) => MediaHub(
+      id: 'library-explore.${widget.library.id}.$id',
+      identifier: 'library-explore.${widget.library.id}.$id',
+      title: title,
+      type: 'mixed',
+      items: [for (final item in items) item.toMediaItem()],
+      size: items.length,
+      more: false,
+      serverId: widget.library.serverId,
+    );
+
+    final holyarrs = sources.holyarrsSource;
+    if (holyarrs != null) {
+      try {
+        final hubs = await holyarrs.fetchGenreHubs(focus.kind, focus.genres, limit: ExploreProvider.rowLimit);
+        return [for (final h in hubs) hub(h.id, h.title, h.page.items)];
+      } catch (e) {
+        // A revoked key or HolyArrs being down falls back to Seerr.
+        appLogger.w('Library explore: HolyArrs genre rows failed', error: e);
+      }
+    }
+    final seerr = sources.seerrSource;
+    if (seerr == null) return const [];
+    final names = TmdbGenres.of(focus.kind);
+    final pages = await Future.wait([
+      for (final genre in focus.genres)
+        seerr.fetchGenre(focus.kind, genre).then<CatalogPage?>((p) => p).catchError((Object e) {
+          appLogger.w('Library explore: Seerr genre $genre failed', error: e);
+          return null;
+        }),
+    ]);
+    return [
+      for (var i = 0; i < focus.genres.length; i++)
+        if (pages[i] case final CatalogPage page when page.items.isNotEmpty)
+          hub('genre.${focus.genres[i]}', 'Popular ${names[focus.genres[i]] ?? ''}'.trim(), page.items),
+    ];
+  }
+
   /// With no request service connected in the app, the server's own
   /// Discover row (Home Screen Sections, through Seerr) still shows what is
   /// out there. Not for anime, which it does not cover.
@@ -154,7 +212,10 @@ class _LibraryExploreTabState extends BaseLibraryTabState<MediaHub, LibraryExplo
     if (_isAnime) return const [];
     final client = context.tryGetMediaClientForServer(serverIdOrNull(widget.library.serverId));
     if (client is! ServerHomeRowsClient) return const [];
-    final hub = await (client as ServerHomeRowsClient).fetchServerDiscoverRow(widget.library.kind, limit: ExploreProvider.rowLimit);
+    final hub = await (client as ServerHomeRowsClient).fetchServerDiscoverRow(
+      widget.library.kind,
+      limit: ExploreProvider.rowLimit,
+    );
     if (hub == null || hub.items.isEmpty) return const [];
     return [
       MediaHub(

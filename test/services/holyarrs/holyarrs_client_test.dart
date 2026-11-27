@@ -185,4 +185,35 @@ void main() {
     await cache.get();
     expect(loads, 2);
   });
+
+  test('genre pages become rows, a mood row shared by two genres shows once', () async {
+    final seen = <String>[];
+    final client = HolyArrsClient(
+      _creds,
+      httpClient: MockClient((request) async {
+        seen.add(request.url.query);
+        final genre = request.url.queryParameters['genre'];
+        return http.Response(
+          jsonEncode({
+            'rows': [
+              {
+                'id': 'genre_trending',
+                'title': 'Trending $genre',
+                'items': [_title()],
+              },
+              {
+                'id': 'genre_mood_nature',
+                'title': 'Nature',
+                'items': [_title()],
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+    final hubs = await HolyArrsCatalogSource(client).fetchGenreHubs(MediaKind.show, [99, 10764]);
+    expect(hubs.map((h) => h.title), ['Trending 99', 'Nature', 'Trending 10764']);
+    expect(seen, containsAll(['type=shows&genre=99', 'type=shows&genre=10764']));
+  });
 }

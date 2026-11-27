@@ -147,6 +147,16 @@ class SeerrClient {
   Future<SeerrPage<SeerrMedia>> getPopularTv({int page = 1}) =>
       _mediaPage('/discover/tv', page, 'tv', localized: false);
 
+  /// `/discover/movies` or `/discover/tv` limited to one TMDB genre.
+  Future<SeerrPage<SeerrMedia>> getByGenre({required bool tv, required int genreId, int page = 1}) async {
+    final data = await _request(
+      'GET',
+      tv ? '/discover/tv' : '/discover/movies',
+      query: {'page': page, 'genre': genreId},
+    );
+    return _parseMediaPage(data, tv ? 'tv' : 'movie');
+  }
+
   Future<SeerrPage<SeerrMedia>> getUpcomingMovies({int page = 1}) =>
       _mediaPage('/discover/movies/upcoming', page, 'movie');
 

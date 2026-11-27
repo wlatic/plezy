@@ -2,6 +2,7 @@ import '../../models/library_row_settings.dart';
 import 'tabs/library_explore_tab.dart';
 import '../../media/library_row_settings_client.dart';
 import '../../widgets/library_rows_sheet.dart';
+import '../../widgets/library_explore_focus_dialog.dart';
 import '../../utils/provider_extensions.dart';
 import 'dart:async';
 
@@ -26,6 +27,7 @@ import '../../providers/multi_server_provider.dart';
 import '../../services/settings_service.dart';
 import '../../widgets/settings_builder.dart';
 import '../../utils/app_logger.dart';
+import '../../utils/snackbar_helper.dart';
 import '../../utils/platform_detector.dart';
 import '../../utils/layout_constants.dart';
 import '../../widgets/app_menu.dart';
@@ -708,6 +710,31 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     await _loadExploreTabSetting(library);
   }
 
+  /// Pick what [library]'s Explore tab explores (kind and genres).
+  Future<void> _showExploreFocusDialog(MediaLibrary library) async {
+    final client = _rowSettingsClientFor(library);
+    if (client == null) return;
+    final current = await client.fetchLibraryExploreFocus(library.id);
+    if (!mounted) return;
+    final choice = await showLibraryExploreFocusDialog(
+      context,
+      libraryTitle: library.title,
+      libraryKind: library.kind,
+      current: current,
+    );
+    if (choice == null || !mounted) return;
+    try {
+      await client.saveLibraryExploreFocus(library.id, library.kind, choice.focus);
+    } catch (e) {
+      appLogger.w('Saving the Explore focus failed', error: e);
+      if (mounted) showErrorSnackBar(context, 'Could not save what to explore');
+      return;
+    }
+    if (!mounted) return;
+    _refreshSelectedLibraryTabs();
+    await _loadExploreTabSetting(library);
+  }
+
   /// Reads whether [library]'s Explore tab is on and shows or hides the tab.
   Future<void> _loadExploreTabSetting(MediaLibrary library) async {
     final client = _rowSettingsClientFor(library);
@@ -1005,6 +1032,13 @@ class _LibrariesScreenState extends State<LibrariesScreen>
           icon: Symbols.view_list_rounded,
           tooltip: 'Customize rows',
           onPressed: () => unawaited(_showLibraryRowsSheet(selectedLibrary)),
+        ),
+      if (selectedLibrary != null && _rowSettingsClientFor(selectedLibrary) != null)
+        FocusableAction(
+          debugLabel: 'libraries_explore_focus',
+          icon: Symbols.explore_rounded,
+          tooltip: 'What to explore',
+          onPressed: () => unawaited(_showExploreFocusDialog(selectedLibrary)),
         ),
       if (selectedLibrary != null && MediaListPlaybackLauncher.canShuffleLibrary(selectedLibrary))
         FocusableAction(
