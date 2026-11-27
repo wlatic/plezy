@@ -3,7 +3,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../i18n/strings.g.dart';
 import '../../media/media_library.dart';
-import '../../utils/content_utils.dart';
+import '../../providers/library_icons_provider.dart';
 import '../../widgets/app_icon.dart';
 import '../../widgets/focusable_list_tile.dart';
 import 'library_server_label.dart';
@@ -56,7 +56,10 @@ class LibraryQuickPickerSheet extends StatelessWidget {
       visualDensity: VisualDensity.standard,
       selected: isSelected,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      leading: AppIcon(ContentTypeHelper.getLibraryIcon(library.kind.id), fill: 1, size: 22, color: foregroundColor),
+      leading: switch (libraryIconOf(context, library)) {
+        final IconData icon => AppIcon(icon, fill: 1, size: 22, color: foregroundColor),
+        null => const SizedBox(width: 22),
+      },
       title: Text(
         library.title,
         maxLines: 1,

@@ -20,13 +20,13 @@ import '../../media/library_genre.dart';
 import '../../media/media_kind.dart';
 import '../../media/media_library.dart';
 import '../../providers/hidden_libraries_provider.dart';
+import '../../providers/library_icons_provider.dart';
 import '../../providers/libraries_provider.dart';
 import '../../providers/multi_server_provider.dart';
 import '../../services/settings_service.dart';
 import '../../widgets/settings_builder.dart';
 import '../../utils/app_logger.dart';
 import '../../utils/platform_detector.dart';
-import '../../utils/content_utils.dart';
 import '../../utils/layout_constants.dart';
 import '../../widgets/app_menu.dart';
 import '../../widgets/desktop_app_bar.dart';
@@ -89,6 +89,7 @@ class _LibrariesScreenState extends State<LibrariesScreen>
         TabVisibilityAware {
   final _recommendedTabKey = GlobalKey();
   final _exploreTabKey = GlobalKey();
+
   /// Whether each library's Explore tab is switched on, keyed by library global key.
   final Map<String, bool> _exploreTabEnabled = {};
   final _browseTabKey = GlobalKey();
@@ -692,7 +693,8 @@ class _LibrariesScreenState extends State<LibrariesScreen>
   /// its server supports them.
   LibraryRowSettingsClient? _rowSettingsClientFor(MediaLibrary library) {
     final client = context.tryGetMediaClientForServer(serverIdOrNull(library.serverId));
-    return client is LibraryRowSettingsClient && (client as LibraryRowSettingsClient).supportsLibraryRowSettings(library.kind)
+    return client is LibraryRowSettingsClient &&
+            (client as LibraryRowSettingsClient).supportsLibraryRowSettings(library.kind)
         ? client as LibraryRowSettingsClient
         : null;
   }
@@ -775,7 +777,7 @@ class _LibrariesScreenState extends State<LibrariesScreen>
     final isSelected = library.globalKey == _selectedLibraryGlobalKey;
     return AppMenuItem<String>(
       value: library.globalKey,
-      icon: ContentTypeHelper.getLibraryIcon(library.kind.id),
+      icon: libraryIconOf(context, library, listen: false),
       label: library.title,
       selected: isSelected,
       subtitleWidget: showServerName
@@ -858,8 +860,10 @@ class _LibrariesScreenState extends State<LibrariesScreen>
         child: Row(
           mainAxisSize: .min,
           children: [
-            AppIcon(ContentTypeHelper.getLibraryIcon(selectedLibrary.kind.id), fill: 1, size: 20),
-            const SizedBox(width: 8),
+            if (libraryIconOf(context, selectedLibrary) case final IconData icon) ...[
+              AppIcon(icon, fill: 1, size: 20),
+              const SizedBox(width: 8),
+            ],
             // Flexible bounds the name to the space the toolbar actions leave,
             // so a long name ellipsizes instead of painting under them (#3021).
             if (librariesSpanMultipleServers(visibleLibraries) && selectedLibrary.serverName != null)

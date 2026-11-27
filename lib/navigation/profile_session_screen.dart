@@ -22,6 +22,7 @@ import '../providers/explore_provider.dart';
 import '../providers/hidden_libraries_provider.dart';
 import '../providers/libraries_provider.dart';
 import '../providers/multi_server_provider.dart';
+import '../providers/library_icons_provider.dart';
 import '../providers/playback_state_provider.dart';
 import '../providers/seerr_account_provider.dart';
 import '../providers/trackers_provider.dart';
@@ -283,6 +284,7 @@ class _ProfileSessionScreenState extends State<ProfileSessionScreen> {
                 dispose: (_, matcher) => matcher.dispose(),
                 lazy: true,
               ),
+              ChangeNotifierProvider(create: (context) => LibraryIconsProvider(context.read<MultiServerProvider>())),
               ChangeNotifierProvider(
                 create: (context) =>
                     HiddenLibrariesProvider(storageService: context.read<StorageService>(), profileId: activeId),

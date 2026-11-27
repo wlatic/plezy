@@ -13,11 +13,12 @@ import '../media/media_backend.dart';
 import '../media/media_library.dart';
 import '../media/media_server_client.dart';
 import '../providers/hidden_libraries_provider.dart';
+import '../providers/library_icons_provider.dart';
+import '../models/library_icons.dart';
 import '../providers/libraries_provider.dart';
 import '../providers/multi_server_provider.dart';
 import '../profiles/active_profile_provider.dart';
 import '../utils/app_logger.dart';
-import '../utils/content_utils.dart';
 import '../utils/dialogs.dart';
 import '../utils/platform_detector.dart';
 import '../utils/provider_extensions.dart';
@@ -336,7 +337,50 @@ class _LibraryManagementSheetState extends State<_LibraryManagementSheet>
   int get lastReorderColumn =>
       focusedIndex < _tempLibraries.length && _hasLibraryMenu(_tempLibraries[focusedIndex]) ? 2 : 1;
 
-  bool _hasLibraryMenu(MediaLibrary library) => widget.getLibraryMenuItems(library).isNotEmpty;
+  bool _hasLibraryMenu(MediaLibrary library) => _canPickIcon(library) || widget.getLibraryMenuItems(library).isNotEmpty;
+
+  bool _canPickIcon(MediaLibrary library) => context.read<LibraryIconsProvider?>()?.canCustomize(library) ?? false;
+
+  static const _iconAction = 'plezy-home:icon';
+
+  /// Every icon, plus the starting icon and name-only choices; the saved
+  /// choice is marked.
+  void _showIconPicker(BuildContext outerContext, MediaLibrary library) {
+    final icons = outerContext.read<LibraryIconsProvider?>();
+    if (icons == null) return;
+    const startingValue = 'plezy-home:starting';
+    final saved = icons.savedFor(library);
+    OverlaySheetController.pushAdaptive<String>(
+      outerContext,
+      builder: (context) => AppMenuSheet<String>(
+        title: '${library.title} icon',
+        entries: [
+          AppMenuItem<String>(
+            value: startingValue,
+            icon: LibraryIcons.defaultFor(library),
+            label: 'Starting icon',
+            selected: saved == null,
+          ),
+          AppMenuItem<String>(
+            value: LibraryIcons.none,
+            icon: Symbols.text_fields_rounded,
+            label: 'No icon (name only)',
+            selected: saved == LibraryIcons.none,
+          ),
+          for (final choice in LibraryIcons.choices)
+            AppMenuItem<String>(value: choice.id, icon: choice.icon, label: choice.label, selected: saved == choice.id),
+        ],
+        onSelected: (value) async {
+          try {
+            await icons.setIcon(library, value == startingValue ? null : value);
+          } catch (e) {
+            appLogger.w('Library icon not saved', error: e);
+            if (outerContext.mounted) showErrorSnackBar(outerContext, 'Could not save the icon');
+          }
+        },
+      ),
+    );
+  }
 
   /// Both layouts scroll the focused row into view: the TV dialog is the D-pad
   /// surface, and the sheet still shows the same cursor to a keyboard user.
@@ -402,10 +446,13 @@ class _LibraryManagementSheetState extends State<_LibraryManagementSheet>
       builder: (context) => AppMenuSheet<String>(
         title: library.title,
         entries: [
+          if (_canPickIcon(library))
+            const AppMenuItem<String>(value: _iconAction, icon: Symbols.interests_rounded, label: 'Icon'),
           for (final item in menuItems)
             AppMenuItem<String>(value: item.value, icon: item.icon, label: item.label, destructive: item.isDestructive),
         ],
-        onSelected: (value) => widget.onLibraryMenuAction(value, library),
+        onSelected: (value) =>
+            value == _iconAction ? _showIconPicker(outerContext, library) : widget.onLibraryMenuAction(value, library),
       ),
     );
   }
@@ -546,7 +593,10 @@ class _LibraryManagementSheetState extends State<_LibraryManagementSheet>
               ),
             ),
             const SizedBox(width: 8),
-            AppIcon(ContentTypeHelper.getLibraryIcon(library.kind.id), fill: 1),
+            switch (libraryIconOf(context, library)) {
+              final IconData icon => AppIcon(icon, fill: 1),
+              null => const SizedBox(width: 24),
+            },
           ],
         ),
         title: Text(library.title),

@@ -312,4 +312,44 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
     }
     return LibraryTmdbIndex(movies: movies, shows: shows);
   }
+
+  /// Library icons live in their own `DisplayPreferences` row, one
+  /// `CustomPrefs` entry per library.
+  static const _iconPrefsId = 'plezy-library-icons';
+
+  bool get supportsLibraryIcons => dialect == MediaBrowserDialect.jellyfin;
+
+  Future<Map<String, String>> fetchLibraryIcons() async {
+    final response = await _http.get(
+      MediaBrowserPaths.displayPreferences(_iconPrefsId),
+      queryParameters: _rowSettingsQuery,
+    );
+    if (response.statusCode != 200) return const {};
+    final custom = response.data is Map ? (response.data as Map)['CustomPrefs'] : null;
+    if (custom is! Map) return const {};
+    return {
+      for (final entry in custom.entries)
+        if (entry.key is String && entry.value is String && (entry.value as String).isNotEmpty)
+          entry.key as String: entry.value as String,
+    };
+  }
+
+  /// Read-modify-write, as for the row settings.
+  Future<void> saveLibraryIcon(String libraryId, String? iconId) async {
+    final path = MediaBrowserPaths.displayPreferences(_iconPrefsId);
+    final readResponse = await _http.get(path, queryParameters: _rowSettingsQuery);
+    throwIfHttpError(readResponse);
+    final current = readResponse.data;
+    final body = current is Map<String, dynamic>
+        ? Map<String, dynamic>.of(current)
+        : <String, dynamic>{'Id': _iconPrefsId, 'Client': _rowSettingsClient};
+    final custom = body['CustomPrefs'];
+    body['CustomPrefs'] = {
+      if (custom is Map) ...custom,
+      // Jellyfin keeps a key with a null value; an empty string reads as unset.
+      libraryId: iconId ?? '',
+    };
+    final writeResponse = await _http.post(path, queryParameters: _rowSettingsQuery, body: body);
+    throwIfHttpError(writeResponse);
+  }
 }

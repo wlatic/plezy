@@ -17,6 +17,7 @@ import '../media/media_library.dart';
 import '../mixins/mounted_set_state_mixin.dart';
 import '../navigation/navigation_tabs.dart';
 import '../providers/catalog_sources_provider.dart';
+import '../providers/library_icons_provider.dart';
 import '../providers/hidden_libraries_provider.dart';
 import '../providers/libraries_provider.dart';
 import '../services/device_performance.dart';
@@ -1509,9 +1510,12 @@ class SideNavigationRailState extends State<SideNavigationRail> with MountedSetS
     final focusKey = _libraryItemFocusKey(section, library);
     final focusNode = _focusTracker.get(focusKey);
 
+    final libraryIcon = libraryIconOf(context, library);
     return NavigationRailItem(
-      icon: ContentTypeHelper.getLibraryIcon(library.kind.id),
-      selectedIcon: ContentTypeHelper.getLibraryIcon(library.kind.id),
+      icon: libraryIcon ?? ContentTypeHelper.getLibraryIcon(library.kind.id),
+      selectedIcon: libraryIcon,
+      // "No icon": keep the icon's space so names stay lined up.
+      iconWidget: libraryIcon == null ? const SizedBox(width: 18, height: 18) : null,
       label: Column(
         crossAxisAlignment: .start,
         mainAxisSize: .min,
