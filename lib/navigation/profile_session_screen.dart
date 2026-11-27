@@ -9,6 +9,7 @@ import '../connection/connection_registry.dart';
 import '../focus/covered_route_focus_boundary.dart';
 import '../focus/key_event_utils.dart';
 import '../media/ids.dart';
+import '../media/library_tmdb_index.dart';
 import '../media/media_server_client.dart';
 import '../profiles/active_profile_provider.dart';
 import '../profiles/plex_home_service.dart';
@@ -47,13 +48,33 @@ import 'profile_navigation_scope.dart';
 import 'settings_shortcut.dart';
 
 CatalogSourcesProvider _createCatalogSourcesProvider(BuildContext context) {
+  final multiServer = context.read<MultiServerProvider>();
   return CatalogSourcesProvider(
     plexSessionSupplier: () => resolvePlexDiscoverSession(
       activeProfile: context.read<ActiveProfileProvider>(),
       connections: context.read<ConnectionRegistry>(),
       profileConnections: context.read<ProfileConnectionRegistry>(),
     ),
+    libraryTmdbIndex: CachedLibraryTmdbIndex(() => _loadLibraryTmdbIndex(multiServer)),
   );
+}
+
+/// Every online server's movies and shows by TMDB id; a server that fails
+/// is left out rather than failing the whole index.
+Future<LibraryTmdbIndex?> _loadLibraryTmdbIndex(MultiServerProvider multiServer) async {
+  final clients = [
+    for (final id in multiServer.onlineServerIds)
+      if (multiServer.getClientForServer(ServerId(id)) case final LibraryTmdbIndexClient client) client,
+  ];
+  if (clients.isEmpty) return null;
+  final indexes = await Future.wait([
+    for (final client in clients)
+      client.fetchLibraryTmdbIndex().then<LibraryTmdbIndex?>((index) => index).catchError((Object e) {
+        appLogger.w('Library TMDB index failed', error: e);
+        return null;
+      }),
+  ]);
+  return indexes.nonNulls.fold<LibraryTmdbIndex>(const LibraryTmdbIndex(), (all, index) => all.merge(index));
 }
 
 /// Root route for an active profile session.

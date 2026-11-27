@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:plezy/media/library_tmdb_index.dart';
+import 'package:plezy/media/media_kind.dart';
 import 'package:plezy/models/catalog/catalog_metadata.dart';
 import 'package:plezy/services/catalog/holyarrs_catalog_source.dart';
 import 'package:plezy/services/holyarrs/holyarrs_client.dart';
@@ -31,7 +33,14 @@ void main() {
         return http.Response(
           jsonEncode({
             'head': [
-              {'id': 'top_picks', 'title': 'Top picks for you', 'items': [_title(), {'kind': 'show'}]},
+              {
+                'id': 'top_picks',
+                'title': 'Top picks for you',
+                'items': [
+                  _title(),
+                  {'kind': 'show'},
+                ],
+              },
             ],
           }),
           200,
@@ -67,7 +76,11 @@ void main() {
     );
     expect(
       () => client.ask(tmdbId: 1, isShow: false),
-      throwsA(isA<HolyArrsException>().having((e) => e.message, 'message', 'Requests is off.').having((e) => e.isPartOff, 'part off', true)),
+      throwsA(
+        isA<HolyArrsException>()
+            .having((e) => e.message, 'message', 'Requests is off.')
+            .having((e) => e.isPartOff, 'part off', true),
+      ),
     );
   });
 
@@ -103,5 +116,73 @@ void main() {
       CatalogRequestState.approved,
     );
     expect(HolyArrsCatalogSource.serverStateOf(HolyArrsTitle.fromJson(_title())!), isNull);
+  });
+
+  group('server library overlay', () {
+    HolyArrsClient exploreClient() => HolyArrsClient(
+      _creds,
+      httpClient: MockClient(
+        (request) async => http.Response(
+          jsonEncode({
+            'head': [
+              {
+                'id': 'top_picks',
+                'title': 'Top picks for you',
+                'items': [_title(kind: 'movie')],
+              },
+            ],
+          }),
+          200,
+        ),
+      ),
+    );
+
+    test('a title the media server has is available even when HolyArrs says not', () async {
+      final source = HolyArrsCatalogSource(
+        exploreClient(),
+        libraryIndex: CachedLibraryTmdbIndex(() async => const LibraryTmdbIndex(movies: {76331})),
+      );
+      final hubs = await source.fetchKindHubs(MediaKind.movie);
+      expect(hubs.single.page.items.single.serverState?.availability, CatalogAvailability.available);
+    });
+
+    test('the same TMDB id as a show does not count for a movie', () async {
+      final source = HolyArrsCatalogSource(
+        exploreClient(),
+        libraryIndex: CachedLibraryTmdbIndex(() async => const LibraryTmdbIndex(shows: {76331})),
+      );
+      final hubs = await source.fetchKindHubs(MediaKind.movie);
+      expect(hubs.single.page.items.single.serverState, isNull);
+    });
+
+    test('a failing index leaves the HolyArrs state', () async {
+      final source = HolyArrsCatalogSource(
+        exploreClient(),
+        libraryIndex: CachedLibraryTmdbIndex(() async => throw Exception('server down')),
+      );
+      final hubs = await source.fetchKindHubs(MediaKind.movie);
+      expect(hubs.single.page.items.single.serverState, isNull);
+    });
+  });
+
+  test('mixed-page row titles say their kind unless they already do', () {
+    expect(HolyArrsCatalogSource.withKindLabel('Top picks for you', 'Movies'), 'Top picks for you · Movies');
+    expect(HolyArrsCatalogSource.withKindLabel('Trending movies this week', 'Movies'), 'Trending movies this week');
+    expect(HolyArrsCatalogSource.withKindLabel('New seasons', 'Shows'), 'New seasons · Shows');
+  });
+
+  test('the cached index is reused within its lifetime and reloaded after', () async {
+    var loads = 0;
+    var now = DateTime(2026, 11, 26);
+    final cache = CachedLibraryTmdbIndex(() async {
+      loads++;
+      return const LibraryTmdbIndex();
+    }, now: () => now);
+    await cache.get();
+    await cache.get();
+    expect(loads, 1);
+    now = now.add(const Duration(minutes: 11));
+    await cache.get();
+    expect(loads, 2);
   });
 }

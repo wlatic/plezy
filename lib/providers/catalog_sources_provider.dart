@@ -1,3 +1,4 @@
+import '../media/library_tmdb_index.dart';
 import '../services/catalog/holyarrs_catalog_source.dart';
 import '../services/holyarrs/holyarrs_client.dart';
 import 'holyarrs_account_provider.dart';
@@ -100,9 +101,13 @@ class _CatalogSourceBinding<Client extends Object, Source extends CatalogSource>
 /// every source appears and disappears with its owning account connection
 /// (which also drives the Explore tab's visibility).
 class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifierMixin {
-  CatalogSourcesProvider({this.plexSessionSupplier});
+  CatalogSourcesProvider({this.plexSessionSupplier, this.libraryTmdbIndex});
 
   final PlexDiscoverSessionSupplier? plexSessionSupplier;
+
+  /// The media servers' own library, for sources whose library knowledge
+  /// can lag behind it (HolyArrs).
+  final CachedLibraryTmdbIndex? libraryTmdbIndex;
   final _CatalogSourceBinding<PlexDiscoverSession, PlexCatalogSource> _plex = _CatalogSourceBinding(
     // Widened hub artwork (`excludeElements=Media` instead of `Media,Image`)
     // costs +104.95% — 27,287 to 55,925 bytes for 26 items, uncached, with up
@@ -121,8 +126,8 @@ class CatalogSourcesProvider extends ChangeNotifier with DisposableChangeNotifie
     MdblistCatalogSource.new,
   );
   final _CatalogSourceBinding<SeerrClient, SeerrCatalogSource> _seerr = _CatalogSourceBinding(SeerrCatalogSource.new);
-  final _CatalogSourceBinding<HolyArrsClient, HolyArrsCatalogSource> _holyarrs = _CatalogSourceBinding(
-    HolyArrsCatalogSource.new,
+  late final _CatalogSourceBinding<HolyArrsClient, HolyArrsCatalogSource> _holyarrs = _CatalogSourceBinding(
+    (client) => HolyArrsCatalogSource(client, libraryIndex: libraryTmdbIndex),
   );
   int _profileBindingGeneration = 0;
   int _plexSessionGeneration = 0;

@@ -29,6 +29,7 @@ import '../media/media_file_info.dart';
 import '../media/media_hub.dart';
 import '../media/server_home_rows_client.dart';
 import '../media/library_row_settings_client.dart';
+import '../media/library_tmdb_index.dart';
 import '../models/library_row_settings.dart';
 import '../models/catalog/catalog_item.dart';
 import '../media/media_item.dart';
@@ -299,6 +300,7 @@ class JellyfinClient
     implements
         ServerHomeRowsClient,
         LibraryRowSettingsClient,
+        LibraryTmdbIndexClient,
         MediaServerClient,
         SeasonEpisodePagingClient,
         MediaDeletionPermissionClient,

@@ -30,7 +30,13 @@ abstract final class LibraryRows {
   /// Not a row: whether the library shows an Explore tab.
   static const exploreTab = 'exploretab';
 
-  static List<LibraryRowSetting> defaults(MediaKind kind) => kind == MediaKind.movie
+  /// [exploreTab] is the Explore tab's default: on for a library's main
+  /// movie or TV library and for anime, off for themed extras (a sleep or
+  /// kids library) unless switched on.
+  static List<LibraryRowSetting> defaults(MediaKind kind, {bool exploreTab = true}) =>
+      _defaults(kind).map((row) => row.id == LibraryRows.exploreTab ? row.copyWith(enabled: exploreTab) : row).toList();
+
+  static List<LibraryRowSetting> _defaults(MediaKind kind) => kind == MediaKind.movie
       ? const [
           LibraryRowSetting(continueWatching),
           LibraryRowSetting(released),
@@ -71,8 +77,8 @@ abstract final class LibraryRows {
   /// The saved order and switches. Rows the saved list does not know (added
   /// in a later version) follow in their default order; unknown ids are
   /// dropped.
-  static List<LibraryRowSetting> parse(String? saved, MediaKind kind) {
-    final defaults = LibraryRows.defaults(kind);
+  static List<LibraryRowSetting> parse(String? saved, MediaKind kind, {bool exploreTab = true}) {
+    final defaults = LibraryRows.defaults(kind, exploreTab: exploreTab);
     if (saved == null || saved.isEmpty) return defaults;
     final List<Object?> decoded;
     try {

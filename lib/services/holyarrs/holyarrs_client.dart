@@ -11,8 +11,11 @@ class HolyArrsCredentials {
   final String apiKey;
   final String? displayName;
 
-  HolyArrsCredentials copyWith({String? apiKey, String? displayName}) =>
-      HolyArrsCredentials(baseUrl: baseUrl, apiKey: apiKey ?? this.apiKey, displayName: displayName ?? this.displayName);
+  HolyArrsCredentials copyWith({String? apiKey, String? displayName}) => HolyArrsCredentials(
+    baseUrl: baseUrl,
+    apiKey: apiKey ?? this.apiKey,
+    displayName: displayName ?? this.displayName,
+  );
 
   Map<String, Object?> toJson() => {'baseUrl': baseUrl, 'apiKey': apiKey, 'displayName': displayName};
 
@@ -95,6 +98,66 @@ class HolyArrsTitle {
       askLabel: ask is Map ? ask['state_label']?.toString() : null,
       trailerKey: json['trailer_key'] as String?,
       logo: json['card_logo'] as String?,
+    );
+  }
+}
+
+/// A title's full page: the card fields plus runtime, score, people and
+/// similar titles.
+class HolyArrsTitleDetail {
+  const HolyArrsTitleDetail({
+    required this.title,
+    this.runtimeMinutes,
+    this.certification,
+    this.score,
+    this.votes,
+    this.people = const [],
+    this.similar = const [],
+  });
+
+  final HolyArrsTitle title;
+  final int? runtimeMinutes;
+  final String? certification;
+
+  /// Out of 10.
+  final double? score;
+  final int? votes;
+  final List<({String name, String? character, String? photo})> people;
+  final List<HolyArrsTitle> similar;
+
+  static HolyArrsTitleDetail? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final videos = json['videos'];
+    final trailer = videos is List
+        ? videos.whereType<Map>().where((v) => v['type'] == 'Trailer' && v['key'] is String).firstOrNull
+        : null;
+    final title = HolyArrsTitle.fromJson({
+      ...json.cast<String, Object?>(),
+      'trailer_key': ?(json['trailer_key'] ?? trailer?['key']),
+      'card_logo': ?(json['card_logo'] ?? json['logo']),
+    });
+    if (title == null) return null;
+    final score = json['score'];
+    final rating = json['rating'];
+    return HolyArrsTitleDetail(
+      title: title,
+      runtimeMinutes: json['runtime_minutes'] is int ? json['runtime_minutes'] as int : null,
+      certification: rating is String && rating.isNotEmpty && rating != 'NR' ? rating : null,
+      score: score is num && score > 0 ? score.toDouble() : null,
+      votes: json['votes'] is int ? json['votes'] as int : null,
+      people: [
+        for (final person in (json['people'] as List? ?? const []))
+          if (person is Map && person['name'] is String && person['role'] == 'actor')
+            (
+              name: person['name'] as String,
+              character: person['character'] as String?,
+              photo: person['profile'] as String?,
+            ),
+      ],
+      similar: [
+        for (final item in (json['similar'] as List? ?? const []))
+          if (HolyArrsTitle.fromJson(item) case final HolyArrsTitle similar) similar,
+      ],
     );
   }
 }
@@ -188,6 +251,12 @@ class HolyArrsClient {
             ],
           ),
     ];
+  }
+
+  /// A movie's or show's full details, from HolyArrs's TMDB cache.
+  Future<HolyArrsTitleDetail?> titleDetail({required int tmdbId, required bool isShow}) async {
+    final data = await _send('GET', '/api/v1/metadata/${isShow ? 'show' : 'movie'}/$tmdbId');
+    return HolyArrsTitleDetail.fromJson(data);
   }
 
   /// Titles matching [query], as HolyArrs's own search box finds them

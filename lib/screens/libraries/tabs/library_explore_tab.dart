@@ -10,6 +10,7 @@ import '../../../media/ids.dart';
 import '../../../media/media_hub.dart';
 import '../../../media/media_item.dart';
 import '../../../media/media_kind.dart';
+import '../../../media/server_home_rows_client.dart';
 import '../../../models/catalog/catalog_item.dart';
 import '../../../providers/catalog_sources_provider.dart';
 import '../../../providers/explore_provider.dart';
@@ -108,7 +109,7 @@ class _LibraryExploreTabState extends BaseLibraryTabState<MediaHub, LibraryExplo
       ];
     }
     final source = _sourceFor(sources);
-    if (source == null) return const [];
+    if (source == null) return _serverDiscoverRows();
 
     MediaHub hub(String id, String title, List<CatalogItem> items) {
       final matching = [
@@ -144,6 +145,29 @@ class _LibraryExploreTabState extends BaseLibraryTabState<MediaHub, LibraryExplo
     final order = [for (final row in source.supportedRows) 'library-explore.${widget.library.id}.${row.name}'];
     hubs.sort((a, b) => order.indexOf(a.id).compareTo(order.indexOf(b.id)));
     return hubs.where((hub) => hub.items.isNotEmpty).toList();
+  }
+
+  /// With no request service connected in the app, the server's own
+  /// Discover row (Home Screen Sections, through Seerr) still shows what is
+  /// out there. Not for anime, which it does not cover.
+  Future<List<MediaHub>> _serverDiscoverRows() async {
+    if (_isAnime) return const [];
+    final client = context.tryGetMediaClientForServer(serverIdOrNull(widget.library.serverId));
+    if (client is! ServerHomeRowsClient) return const [];
+    final hub = await (client as ServerHomeRowsClient).fetchServerDiscoverRow(widget.library.kind, limit: ExploreProvider.rowLimit);
+    if (hub == null || hub.items.isEmpty) return const [];
+    return [
+      MediaHub(
+        id: 'library-explore.${widget.library.id}.server-discover',
+        identifier: 'library-explore.${widget.library.id}.server-discover',
+        title: hub.title,
+        type: 'mixed',
+        items: hub.items,
+        size: hub.items.length,
+        more: false,
+        serverId: widget.library.serverId,
+      ),
+    ];
   }
 
   @override

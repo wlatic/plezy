@@ -18,18 +18,37 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
 
   @override
   Future<List<LibraryRowSetting>> fetchLibraryRowSettings(String libraryId, MediaKind kind) async {
+    final (response, mainLibrary) = await (
+      _http
+          .get(MediaBrowserPaths.displayPreferences(_rowSettingsPrefsId), queryParameters: _rowSettingsQuery)
+          .then<MediaServerResponse?>((r) => r)
+          .catchError((Object e) {
+            if (e is MediaServerHttpException && e.isCancellation) throw e;
+            return null;
+          }),
+      _isMainLibrary(libraryId),
+    ).wait;
+    if (response == null || response.statusCode != 200) return LibraryRows.defaults(kind, exploreTab: mainLibrary);
+    final data = response.data;
+    final custom = data is Map ? data['CustomPrefs'] : null;
+    return LibraryRows.parse(custom is Map ? custom[libraryId] as String? : null, kind, exploreTab: mainLibrary);
+  }
+
+  /// The first library of its type (the main Movies or Shows), or an anime
+  /// library. Unknown counts as main, so a failed lookup hides nothing.
+  Future<bool> _isMainLibrary(String libraryId) async {
     try {
-      final response = await _http.get(
-        MediaBrowserPaths.displayPreferences(_rowSettingsPrefsId),
-        queryParameters: _rowSettingsQuery,
-      );
-      if (response.statusCode != 200) return LibraryRows.defaults(kind);
-      final data = response.data;
-      final custom = data is Map ? data['CustomPrefs'] : null;
-      return LibraryRows.parse(custom is Map ? custom[libraryId] as String? : null, kind);
+      final response = await _http.get('/Users/${_segment(connection.userId)}/Views');
+      if (response.statusCode != 200) return true;
+      final views = _itemsArray(response.data);
+      final library = views.where((view) => view['Id'] == libraryId).firstOrNull;
+      if (library == null) return true;
+      if ('${library['Name'] ?? ''}'.toLowerCase().contains('anime')) return true;
+      final firstOfType = views.where((view) => view['CollectionType'] == library['CollectionType']).firstOrNull;
+      return firstOfType?['Id'] == libraryId;
     } catch (e) {
       if (e is MediaServerHttpException && e.isCancellation) rethrow;
-      return LibraryRows.defaults(kind);
+      return true;
     }
   }
 
@@ -44,10 +63,7 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
         ? Map<String, dynamic>.of(current)
         : <String, dynamic>{'Id': _rowSettingsPrefsId, 'Client': _rowSettingsClient};
     final custom = body['CustomPrefs'];
-    body['CustomPrefs'] = {
-      if (custom is Map) ...custom,
-      libraryId: LibraryRows.encode(rows),
-    };
+    body['CustomPrefs'] = {if (custom is Map) ...custom, libraryId: LibraryRows.encode(rows)};
     final writeResponse = await _http.post(path, queryParameters: _rowSettingsQuery, body: body);
     throwIfHttpError(writeResponse);
   }
@@ -83,15 +99,17 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
 
     final titleType = isMovies ? 'Movie' : 'Series';
     final needsHistory = enabled.any({LibraryRows.because, LibraryRows.gems, LibraryRows.newEpisodes}.contains);
-    final recentlyPlayed = !needsHistory ? const <Map<String, dynamic>>[] : await _safeFetchItemsArray('/Items', {
-      ...query({}),
-      'IncludeItemTypes': isMovies ? 'Movie' : 'Episode',
-      'IsPlayed': 'true',
-      'SortBy': 'DatePlayed',
-      'SortOrder': 'Descending',
-      'Limit': '300',
-      'Fields': '$_hubRowFields,SeriesId',
-    });
+    final recentlyPlayed = !needsHistory
+        ? const <Map<String, dynamic>>[]
+        : await _safeFetchItemsArray('/Items', {
+            ...query({}),
+            'IncludeItemTypes': isMovies ? 'Movie' : 'Episode',
+            'IsPlayed': 'true',
+            'SortBy': 'DatePlayed',
+            'SortOrder': 'Descending',
+            'Limit': '300',
+            'Fields': '$_hubRowFields,SeriesId',
+          });
     final startedSeries = {
       for (final played in recentlyPlayed)
         if (played['SeriesId'] case final String id) id,
@@ -100,55 +118,79 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
     Future<MediaHub?>? when(String id, Future<MediaHub?> Function() build) => enabled.contains(id) ? build() : null;
     final pending = <String, Future<MediaHub?>?>{
       // Released / aired: newest first, nothing dated in the future.
-      LibraryRows.released: when(LibraryRows.released, () => _safeFetchItemsArray('/Items', query({
-        'IncludeItemTypes': titleType,
-        'SortBy': 'PremiereDate',
-        'SortOrder': 'Descending',
-        'MaxPremiereDate': now.toIso8601String(),
-      })).then((items) => row('released', isMovies ? 'New Releases' : 'Latest Shows', items))),
+      LibraryRows.released: when(
+        LibraryRows.released,
+        () => _safeFetchItemsArray(
+          '/Items',
+          query({
+            'IncludeItemTypes': titleType,
+            'SortBy': 'PremiereDate',
+            'SortOrder': 'Descending',
+            'MaxPremiereDate': now.toIso8601String(),
+          }),
+        ).then((items) => row('released', isMovies ? 'New Releases' : 'Latest Shows', items)),
+      ),
       // Recently aired episodes of shows the user has been watching, one per show.
       if (!isMovies)
-        LibraryRows.newEpisodes: when(LibraryRows.newEpisodes, () => _safeFetchItemsArray('/Items', {
-          ...query({}),
-          'IncludeItemTypes': 'Episode',
-          'IsPlayed': 'false',
-          'SortBy': 'PremiereDate',
-          'SortOrder': 'Descending',
-          'MinPremiereDate': now.subtract(const Duration(days: 45)).toIso8601String(),
-          'MaxPremiereDate': now.toIso8601String(),
-          'Limit': '200',
-          'Fields': '$_hubRowFields,SeriesId',
-        }).then((episodes) {
-          final seen = <String>{};
-          final fresh = [
-            for (final episode in episodes)
-              if (episode['SeriesId'] case final String id when startedSeries.contains(id) && seen.add(id)) episode,
-          ];
-          return row('newepisodes', 'New Episodes', fresh);
-        })),
+        LibraryRows.newEpisodes: when(
+          LibraryRows.newEpisodes,
+          () =>
+              _safeFetchItemsArray('/Items', {
+                ...query({}),
+                'IncludeItemTypes': 'Episode',
+                'IsPlayed': 'false',
+                'SortBy': 'PremiereDate',
+                'SortOrder': 'Descending',
+                'MinPremiereDate': now.subtract(const Duration(days: 45)).toIso8601String(),
+                'MaxPremiereDate': now.toIso8601String(),
+                'Limit': '200',
+                'Fields': '$_hubRowFields,SeriesId',
+              }).then((episodes) {
+                final seen = <String>{};
+                final fresh = [
+                  for (final episode in episodes)
+                    if (episode['SeriesId'] case final String id when startedSeries.contains(id) && seen.add(id))
+                      episode,
+                ];
+                return row('newepisodes', 'New Episodes', fresh);
+              }),
+        ),
       LibraryRows.because: when(
         LibraryRows.because,
         () => _becauseYouWatched(recentlyPlayed, isMovies: isMovies, limit: limit, libraryId: libraryId),
       ),
       // Highly rated and not yet watched (for shows: not yet started).
-      LibraryRows.gems: when(LibraryRows.gems, () => _safeFetchItemsArray('/Items', query({
-        'IncludeItemTypes': titleType,
-        'IsPlayed': 'false',
-        'MinCommunityRating': '7.5',
-        'SortBy': 'Random',
-        'Limit': '${limit * 2}',
-      })).then((items) {
-        final unstarted = [
-          for (final item in items)
-            if (isMovies || !startedSeries.contains(item['Id'])) item,
-        ];
-        return row('gems', isMovies ? 'Hidden Gems' : 'Unwatched Picks', unstarted);
-      })),
-      LibraryRows.topRated: when(LibraryRows.topRated, () => _safeFetchItemsArray('/Items', query({
-        'IncludeItemTypes': titleType,
-        'SortBy': isMovies ? 'CriticRating,CommunityRating' : 'CommunityRating',
-        'SortOrder': 'Descending',
-      })).then((items) => row('toprated', 'Top Rated', items))),
+      LibraryRows.gems: when(
+        LibraryRows.gems,
+        () =>
+            _safeFetchItemsArray(
+              '/Items',
+              query({
+                'IncludeItemTypes': titleType,
+                'IsPlayed': 'false',
+                'MinCommunityRating': '7.5',
+                'SortBy': 'Random',
+                'Limit': '${limit * 2}',
+              }),
+            ).then((items) {
+              final unstarted = [
+                for (final item in items)
+                  if (isMovies || !startedSeries.contains(item['Id'])) item,
+              ];
+              return row('gems', isMovies ? 'Hidden Gems' : 'Unwatched Picks', unstarted);
+            }),
+      ),
+      LibraryRows.topRated: when(
+        LibraryRows.topRated,
+        () => _safeFetchItemsArray(
+          '/Items',
+          query({
+            'IncludeItemTypes': titleType,
+            'SortBy': isMovies ? 'CriticRating,CommunityRating' : 'CommunityRating',
+            'SortOrder': 'Descending',
+          }),
+        ).then((items) => row('toprated', 'Top Rated', items)),
+      ),
       if (isMovies)
         LibraryRows.collections: when(
           LibraryRows.collections,
@@ -243,5 +285,31 @@ mixin _JellyfinLibraryRecommendedMethods on _JellyfinClientInternals {
       limit: limit,
     );
     return hub;
+  }
+
+  /// Every movie and show the user can see, as TMDB ids, in one request
+  /// without images or user data.
+  Future<LibraryTmdbIndex> fetchLibraryTmdbIndex() async {
+    final response = await _http.get(
+      '/Items',
+      queryParameters: {
+        'userId': connection.userId,
+        'Recursive': 'true',
+        'IncludeItemTypes': 'Movie,Series',
+        'Fields': 'ProviderIds',
+        'EnableImages': 'false',
+        'EnableUserData': 'false',
+        'EnableTotalRecordCount': 'false',
+      },
+    );
+    throwIfHttpError(response);
+    final movies = <int>{}, shows = <int>{};
+    for (final item in _itemsArray(response.data)) {
+      final ids = item['ProviderIds'];
+      final tmdb = ids is Map ? int.tryParse('${ids['Tmdb'] ?? ''}') : null;
+      if (tmdb == null) continue;
+      (item['Type'] == 'Movie' ? movies : shows).add(tmdb);
+    }
+    return LibraryTmdbIndex(movies: movies, shows: shows);
   }
 }

@@ -43,6 +43,16 @@ class _HolyArrsRequestDialogState extends State<_HolyArrsRequestDialog> {
   String? _error;
   String? _allowance;
 
+  /// HolyArrs has its Requests part switched off, so asking cannot work.
+  var _requestsOff = false;
+  final _cancelFocus = FocusNode(debugLabel: 'holyarrs-request-cancel');
+
+  @override
+  void dispose() {
+    _cancelFocus.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -60,10 +70,18 @@ class _HolyArrsRequestDialogState extends State<_HolyArrsRequestDialog> {
             : '$left ${_isShow ? 'show' : 'movie'} request${left == 1 ? '' : 's'} left this week';
       });
     } on HolyArrsException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) setState(() => _applyError(e));
     } catch (_) {
       // The allowance is informational; asking still reports a refusal.
     }
+  }
+
+  void _applyError(HolyArrsException e) {
+    _requestsOff = e.isPartOff;
+    _error = e.isPartOff ? 'Requests are switched off in HolyArrs right now.' : e.message;
+    // The focused Request button is about to be disabled; keep the remote
+    // on something it can press.
+    if (_requestsOff) WidgetsBinding.instance.addPostFrameCallback((_) => _cancelFocus.requestFocus());
   }
 
   Future<void> _request() async {
@@ -75,7 +93,7 @@ class _HolyArrsRequestDialogState extends State<_HolyArrsRequestDialog> {
       await widget.source.client.ask(tmdbId: widget.tmdbId, isShow: _isShow, futureOnly: _newSeasonsOnly);
       if (mounted) Navigator.of(context).pop(true);
     } on HolyArrsException catch (e) {
-      if (mounted) setState(() => _error = e.message);
+      if (mounted) setState(() => _applyError(e));
     } catch (e) {
       if (mounted) setState(() => _error = 'Could not reach HolyArrs: $e');
     } finally {
@@ -118,8 +136,16 @@ class _HolyArrsRequestDialogState extends State<_HolyArrsRequestDialog> {
         ],
       ),
       actions: [
-        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-        FilledButton(autofocus: true, onPressed: _busy ? null : _request, child: const Text('Request')),
+        TextButton(
+          focusNode: _cancelFocus,
+          onPressed: _busy ? null : () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          autofocus: !_requestsOff,
+          onPressed: _busy || _requestsOff ? null : _request,
+          child: const Text('Request'),
+        ),
       ],
     );
   }

@@ -87,6 +87,7 @@ class _HolyArrsSettingsScreenState extends State<HolyArrsSettingsScreen> {
         final credentials = account.credentials;
         return SettingsPage(
           title: const Text('HolyArrs'),
+          padding: credentials != null ? null : const EdgeInsets.all(16),
           children: credentials != null ? _connected(account, credentials) : _form(account),
         );
       },
@@ -109,13 +110,16 @@ class _HolyArrsSettingsScreenState extends State<HolyArrsSettingsScreen> {
       ],
     ),
     const SizedBox(height: 24),
-    FocusableButton(
-      useBackgroundFocus: true,
-      onPressed: () => _disconnect(account),
-      child: OutlinedButton.icon(
+    Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: FocusableButton(
+        useBackgroundFocus: true,
         onPressed: () => _disconnect(account),
-        icon: const AppIcon(Symbols.link_off_rounded, fill: 1),
-        label: const Text('Disconnect'),
+        child: OutlinedButton.icon(
+          onPressed: () => _disconnect(account),
+          icon: const AppIcon(Symbols.link_off_rounded, fill: 1),
+          label: const Text('Disconnect'),
+        ),
       ),
     ),
   ];

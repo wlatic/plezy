@@ -37,4 +37,15 @@ void main() {
       expect(LibraryRows.defaults(kind).last.enabled, isTrue);
     }
   });
+
+  test('a themed library defaults its Explore tab off, but a saved choice wins', () {
+    bool exploreTab(List<LibraryRowSetting> rows) => rows.firstWhere((r) => r.id == LibraryRows.exploreTab).enabled;
+    expect(exploreTab(LibraryRows.parse(null, MediaKind.show)), isTrue);
+    expect(exploreTab(LibraryRows.parse(null, MediaKind.show, exploreTab: false)), isFalse);
+    final saved = LibraryRows.encode([const LibraryRowSetting(LibraryRows.exploreTab)]);
+    expect(exploreTab(LibraryRows.parse(saved, MediaKind.show, exploreTab: false)), isTrue);
+    // Saved before the tab existed: the default for this library applies.
+    final older = LibraryRows.encode([const LibraryRowSetting(LibraryRows.gems)]);
+    expect(exploreTab(LibraryRows.parse(older, MediaKind.show, exploreTab: false)), isFalse);
+  });
 }

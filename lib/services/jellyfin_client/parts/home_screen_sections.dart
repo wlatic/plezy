@@ -23,10 +23,7 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
   Future<List<MediaHub>?> fetchServerHomeRows({required int limit}) async {
     final List<Map<String, dynamic>> sections;
     try {
-      final response = await _http.get(
-        '/HomeScreen/Sections',
-        queryParameters: {'UserId': connection.userId},
-      );
+      final response = await _http.get('/HomeScreen/Sections', queryParameters: {'UserId': connection.userId});
       if (response.statusCode != 200) return null;
       final data = response.data;
       final items = data is Map<String, dynamic> ? data['Items'] : null;
@@ -42,11 +39,101 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
     }).toList();
     if (wanted.isEmpty) return null;
 
-    appLogger.i('Home Screen Sections: ${sections.length} sections, using ${wanted.map((s) => s['Section']).join(', ')}');
-    final hubs = await Future.wait([
-      for (var i = 0; i < wanted.length; i++) _homeScreenSectionHub(wanted[i], index: i, limit: limit),
-    ]);
-    return hubs.whereType<MediaHub>().where((hub) => hub.items.isNotEmpty).toList();
+    appLogger.i(
+      'Home Screen Sections: ${sections.length} sections, using ${wanted.map((s) => s['Section']).join(', ')}',
+    );
+    final (seasonal, hubs) = await (
+      _seasonalCollectionHub(DateTime.now(), limit: limit),
+      Future.wait([for (var i = 0; i < wanted.length; i++) _homeScreenSectionHub(wanted[i], index: i, limit: limit)]),
+    ).wait;
+    // A seasonal collection sits right under Continue Watching.
+    return [?seasonal, ...hubs.whereType<MediaHub>()].where((hub) => hub.items.isNotEmpty).toList();
+  }
+
+  /// See [ServerHomeRowsClient.fetchServerDiscoverRow].
+  Future<MediaHub?> fetchServerDiscoverRow(MediaKind kind, {required int limit}) {
+    if (kind != MediaKind.movie && kind != MediaKind.show) return Future.value();
+    final isMovies = kind == MediaKind.movie;
+    return _homeScreenSectionHub(
+      {
+        'Section': isMovies ? 'DiscoverMovies' : 'DiscoverTV',
+        'DisplayText': isMovies ? 'Discover Movies' : 'Discover Shows',
+      },
+      index: 0,
+      limit: limit,
+    );
+  }
+
+  /// Row names the plugin uses that read wrongly here: its "Latest Movies"
+  /// is ordered by release date, so it is the New Releases row.
+  static const _sectionTitles = {'LatestMovies': 'New Releases'};
+
+  /// Collections that become a home row while their season lasts, matched by
+  /// collection name (case-insensitive).
+  static final List<({String name, bool Function(DateTime) inSeason})> seasonalCollections = [
+    (
+      name: 'christmas',
+      inSeason: (d) => (d.month == 11 && d.day >= 15) || d.month == 12 || (d.month == 1 && d.day <= 6),
+    ),
+    (name: 'halloween', inSeason: (d) => d.month == 10),
+  ];
+
+  /// The in-season collection's titles in a fresh random order each load.
+  Future<MediaHub?> _seasonalCollectionHub(DateTime now, {required int limit}) async {
+    final names = [
+      for (final season in seasonalCollections)
+        if (season.inSeason(now)) season.name,
+    ];
+    if (names.isEmpty) return null;
+    try {
+      final collections = await _http.get(
+        '/Items',
+        queryParameters: {
+          'userId': connection.userId,
+          'IncludeItemTypes': 'BoxSet',
+          'Recursive': 'true',
+          'EnableImages': 'false',
+        },
+      );
+      if (collections.statusCode != 200) return null;
+      final match = _itemsArray(
+        collections.data,
+      ).where((c) => names.contains('${c['Name'] ?? ''}'.trim().toLowerCase())).firstOrNull;
+      final id = match?['Id'];
+      if (id is! String) return null;
+      final children = await _http.get(
+        '/Items',
+        queryParameters: {
+          'userId': connection.userId,
+          'ParentId': id,
+          'SortBy': 'Random',
+          'Limit': '$limit',
+          'Fields': 'PrimaryImageAspectRatio,Overview,ProviderIds',
+        },
+      );
+      if (children.statusCode != 200) return null;
+      // Films first so the row keeps the poster layout; specials follow.
+      final rows = _itemsArray(children.data);
+      final items = <MediaItem>[
+        for (final row in [...rows.where((r) => r['Type'] == 'Movie'), ...rows.where((r) => r['Type'] != 'Movie')])
+          if (_mapItem(row) case final MediaItem item) item,
+      ];
+      appLogger.i('Home Screen Sections: seasonal ${match!['Name']} has ${items.length} titles');
+      return MediaHub(
+        id: 'seasonal.$id',
+        identifier: 'seasonal.$id',
+        title: '${match['Name']}',
+        type: 'mixed',
+        items: items,
+        size: items.length,
+        more: false,
+        serverId: serverId,
+        serverName: serverName,
+      );
+    } catch (e) {
+      if (e is MediaServerHttpException && e.isCancellation) rethrow;
+      return null;
+    }
   }
 
   @override
@@ -75,7 +162,7 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
       if (e is MediaServerHttpException && e.isCancellation) rethrow;
       return null;
     }
-    final title = section['DisplayText'] as String? ?? type;
+    final title = _sectionTitles[type] ?? section['DisplayText'] as String? ?? type;
     final firstType = rows.isEmpty ? '-' : '${rows.first['Type']}';
     final items = <MediaItem>[
       for (final row in rows.take(limit))

@@ -148,10 +148,7 @@ class _LibraryRowsSheetState extends State<_LibraryRowsSheet>
             ),
             automaticallyImplyLeading: false,
             actions: [
-              IconButton(
-                icon: const AppIcon(Symbols.close_rounded, fill: 1),
-                onPressed: () => Navigator.pop(context),
-              ),
+              IconButton(icon: const AppIcon(Symbols.close_rounded, fill: 1), onPressed: () => Navigator.pop(context)),
             ],
           ),
           body: list,
@@ -209,7 +206,11 @@ class _LibraryRowsSheetState extends State<_LibraryRowsSheet>
           ),
         ),
         title: Text(LibraryRows.title(row.id, widget.kind)),
-        subtitle: row.enabled ? null : const Text('Hidden'),
+        subtitle: row.id == LibraryRows.exploreTab
+            ? Text(row.enabled ? 'A tab beside Recommended, not a row' : 'Hidden · a tab, not a row')
+            : row.enabled
+            ? null
+            : const Text('Hidden'),
         trailing: Container(
           decoration: FocusTheme.focusBackgroundDecoration(
             context,
