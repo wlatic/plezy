@@ -84,6 +84,73 @@ class HolyArrsCatalogSource implements CatalogSource, CatalogHubSource {
     }
   }
 
+  /// The TV's own region (from its language/region setting), for the
+  /// streaming services' top 10s.
+  static String get region {
+    final country = PlatformDispatcher.instance.locale.countryCode;
+    return country == null || country.length != 2 ? 'US' : country.toUpperCase();
+  }
+
+  /// List rows after the personal ones: each service's Top 10 today, New &
+  /// Popular, more generated rows, and themed lists (Holiday, Based on a true
+  /// story, ...). Each part fails on its own without taking the others down.
+  Future<List<CatalogHub>> fetchListHubs(MediaKind? kind, {int limit = 25, int themedLists = 6}) async {
+    final type = switch (kind) {
+      MediaKind.movie => 'movies',
+      MediaKind.show => 'shows',
+      _ => 'all',
+    };
+    Future<List<HolyArrsRow>> safe(Future<List<HolyArrsRow>> Function() load) async {
+      try {
+        return await load();
+      } catch (e) {
+        debugPrint('HolyArrs list rows failed: $e');
+        return const [];
+      }
+    }
+
+    final kindTypes = type == 'all' ? const ['movies', 'shows'] : [type];
+    final (tops, news, tails, themed, owned) = await (
+      safe(() => client.serviceTops(type, region: region)),
+      Future.wait([for (final t in kindTypes) safe(() => client.newRows(t))]),
+      Future.wait([for (final t in kindTypes) safe(() => client.tailRows(t))]),
+      Future.wait([
+        for (final t in kindTypes)
+          safe(() async {
+            final categories = await client.browseCategories(t);
+            return Future.wait([for (final c in categories.take(themedLists)) client.browseCategory(t, c)]);
+          }),
+      ]),
+      _ownedIndex(),
+    ).wait;
+
+    final seen = <String>{};
+    CatalogHub? hub(HolyArrsRow row, String prefix, {String? suffix}) {
+      // A top 10 is only worth a row with a few titles of the kind asked for.
+      final items = [
+        for (final title in row.items)
+          if (type == 'all' || title.kind == (type == 'movies' ? 'movie' : 'show')) title,
+      ];
+      if (items.length < 3 || !seen.add('$prefix:${row.id}')) return null;
+      return CatalogHub(
+        id: '$type:$prefix:${row.id}',
+        title: suffix == null ? row.title : withKindLabel(row.title, suffix),
+        page: CatalogPage(items: [for (final title in items.take(limit)) toCatalogItem(title, owned: owned)]),
+      );
+    }
+
+    String? label(int i) => kindTypes.length == 1 ? null : (kindTypes[i] == 'movies' ? 'Movies' : 'Shows');
+    return [
+      for (final row in tops) ?hub(row, 'top'),
+      for (var i = 0; i < news.length; i++)
+        for (final row in news[i]) ?hub(row, 'new-${kindTypes[i]}', suffix: label(i)),
+      for (var i = 0; i < tails.length; i++)
+        for (final row in tails[i]) ?hub(row, 'tail-${kindTypes[i]}', suffix: label(i)),
+      for (var i = 0; i < themed.length; i++)
+        for (final row in themed[i]) ?hub(row, 'list-${kindTypes[i]}', suffix: label(i)),
+    ];
+  }
+
   @override
   Future<List<CatalogHub>> fetchHubs({int limit = 25}) async {
     final kinds = await Future.wait([
@@ -96,20 +163,31 @@ class HolyArrsCatalogSource implements CatalogSource, CatalogHubSource {
     final movies = kinds[0], shows = kinds[1];
     CatalogHub labelled(CatalogHub hub, String suffix) =>
         CatalogHub(id: hub.id, title: withKindLabel(hub.title, suffix), page: hub.page);
+    final lists = await fetchListHubs(null, limit: limit, themedLists: 3);
     return [
       for (var i = 0; i < movies.length || i < shows.length; i++) ...[
         if (i < movies.length) labelled(movies[i], 'Movies'),
         if (i < shows.length) labelled(shows[i], 'Shows'),
       ],
+      ...lists,
     ];
   }
 
   @override
   Future<CatalogPage> fetchHub(String id, {int page = 1, int limit = 25}) async {
     if (page > 1) return const CatalogPage(items: []);
-    final type = id.split(':').first;
-    final kind = type == 'movies' ? MediaKind.movie : MediaKind.show;
-    final hubs = await fetchKindHubs(kind, limit: limit);
+    final parts = id.split(':');
+    final type = parts.first;
+    final kind = switch (type) {
+      'movies' => MediaKind.movie,
+      'shows' => MediaKind.show,
+      _ => null,
+    };
+    // List rows carry a part name after the type (top, new-…, tail-…, list-…).
+    final isList = parts.length > 2 && (parts[1] == 'top' || parts[1].contains('-'));
+    final hubs = isList || kind == null
+        ? await fetchListHubs(kind, limit: limit)
+        : await fetchKindHubs(kind, limit: limit);
     return hubs.where((hub) => hub.id == id).firstOrNull?.page ?? const CatalogPage(items: []);
   }
 

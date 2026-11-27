@@ -58,6 +58,15 @@ class SeerrCatalogSource implements CatalogSource {
 
   /// Seerr pages are a fixed 20 items; [limit] cannot be honored, so callers
   /// get pages of 20 with [CatalogPage.hasMore] from `totalPages`.
+  /// The highest-rated titles of [kind], two pages (40) at a time.
+  Future<CatalogPage> fetchTopRated(MediaKind kind) async {
+    final tv = kind == MediaKind.show;
+    final origin = _tmdbImageOrigin();
+    final pages = await Future.wait([client.getTopRated(tv: tv), client.getTopRated(tv: tv, page: 2)]);
+    final imageOrigin = await origin;
+    return CatalogPage(items: [for (final page in pages) ..._toPage(page, imageOrigin).items]);
+  }
+
   /// Popular titles of one TMDB genre, for a library's chosen Explore focus.
   Future<CatalogPage> fetchGenre(MediaKind kind, int genreId, {int page = 1}) async {
     final results = client.getByGenre(tv: kind == MediaKind.show, genreId: genreId, page: page);

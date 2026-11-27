@@ -17,6 +17,9 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
     'NextUp',
     'ContinueWatchingNextUp',
     'LiveTV',
+    // Only shows and films are browsed here.
+    'UpcomingMusic',
+    'UpcomingBooks',
   };
 
   /// See [ServerHomeRowsClient.fetchServerHomeRows].
@@ -35,7 +38,7 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
     }
     final wanted = sections.where((s) {
       final type = s['Section'];
-      return type is String && type.isNotEmpty && !_skippedSections.contains(type) && !type.startsWith('Upcoming');
+      return type is String && type.isNotEmpty && !_skippedSections.contains(type);
     }).toList();
     if (wanted.isEmpty) return null;
 
@@ -164,10 +167,17 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
     }
     final title = _sectionTitles[type] ?? section['DisplayText'] as String? ?? type;
     final firstType = rows.isEmpty ? '-' : '${rows.first['Type']}';
-    final items = <MediaItem>[
-      for (final row in rows.take(limit))
-        if (_homeScreenSectionItem(row) case final MediaItem item) item,
-    ];
+    final items = switch (type) {
+      'UpcomingShows' => await _upcomingShowItems(rows, limit: limit),
+      'UpcomingMovies' => [
+        for (final row in rows.take(limit))
+          if (_upcomingMovieItem(row) case final MediaItem item) item,
+      ],
+      _ => <MediaItem>[
+        for (final row in rows.take(limit))
+          if (_homeScreenSectionItem(row) case final MediaItem item) item,
+      ],
+    };
     appLogger.i('Home Screen Sections: $type has ${rows.length} rows, ${items.length} mapped (first type $firstType)');
     return MediaHub(
       id: 'hss.$index.$type',
@@ -181,6 +191,67 @@ mixin _JellyfinHomeScreenSectionsMethods on _JellyfinClientInternals {
       serverName: serverName,
     );
   }
+
+  /// Upcoming episodes come from Sonarr and are not Jellyfin items yet, so
+  /// each becomes its series from the library (once per series, soonest
+  /// first), which opens and plays normally. Series not in the library are
+  /// left out.
+  Future<List<MediaItem>> _upcomingShowItems(List<Map<String, dynamic>> rows, {required int limit}) async {
+    final List<Map<String, dynamic>> series;
+    try {
+      final response = await _http.get(
+        '/Items',
+        queryParameters: {
+          'userId': connection.userId,
+          'IncludeItemTypes': 'Series',
+          'Recursive': 'true',
+          'Fields': 'PrimaryImageAspectRatio,Overview,ProviderIds',
+        },
+      );
+      if (response.statusCode != 200) return const [];
+      series = _itemsArray(response.data);
+    } catch (e) {
+      if (e is MediaServerHttpException && e.isCancellation) rethrow;
+      return const [];
+    }
+    String key(Object? name) => '${name ?? ''}'.trim().toLowerCase();
+    final byName = <String, Map<String, dynamic>>{};
+    for (final s in series) {
+      byName.putIfAbsent(key(s['Name']), () => s);
+    }
+    final seen = <String>{};
+    final items = <MediaItem>[];
+    for (final row in rows) {
+      final match = byName[key(row['SeriesName'] ?? row['Name'])];
+      if (match == null || !seen.add('${match['Id']}')) continue;
+      if (_mapItem(match) case final MediaItem item) items.add(item);
+      if (items.length >= limit) break;
+    }
+    return items;
+  }
+
+  /// Upcoming films come from Radarr and are not Jellyfin items yet: a card
+  /// with Radarr's poster and the release date, opening its info page.
+  MediaItem? _upcomingMovieItem(Map<String, dynamic> row) {
+    final name = row['Name'];
+    if (name is! String || name.isEmpty) return null;
+    final providerIds = row['ProviderIds'];
+    final premiere = DateTime.tryParse('${row['PremiereDate'] ?? ''}');
+    final year = row['ProductionYear'];
+    return CatalogItem(
+      source: CatalogSourceId.seerr,
+      kind: MediaKind.movie,
+      title: name,
+      year: year is int ? year : premiere?.year,
+      overview: premiere == null ? null : 'Coming ${premiere.year}-${_two(premiere.month)}-${_two(premiere.day)}',
+      releaseDate: premiere,
+      // No TMDB id from Radarr here; the Radarr id keeps each card distinct.
+      ids: CatalogItemIds(slug: 'radarr-${providerIds is Map ? providerIds['RadarrMovieId'] : name}'),
+      posterUrl: providerIds is Map ? _absolutizeImagePath(providerIds['RadarrPoster'] as String?) : null,
+    ).toMediaItem();
+  }
+
+  static String _two(int n) => n.toString().padLeft(2, '0');
 
   /// Library items map as usual. Discover entries are Seerr titles that are
   /// not on the server, so they become catalog items that open the request

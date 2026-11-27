@@ -157,6 +157,17 @@ class SeerrClient {
     return _parseMediaPage(data, tv ? 'tv' : 'movie');
   }
 
+  /// Highest-rated titles with enough votes to mean it (TMDB's own Top Rated
+  /// list is close to IMDb's Top 250).
+  Future<SeerrPage<SeerrMedia>> getTopRated({required bool tv, int page = 1}) async {
+    final data = await _request(
+      'GET',
+      tv ? '/discover/tv' : '/discover/movies',
+      query: {'page': page, 'sortBy': 'vote_average.desc', 'voteCountGte': tv ? 1500 : 3000},
+    );
+    return _parseMediaPage(data, tv ? 'tv' : 'movie');
+  }
+
   Future<SeerrPage<SeerrMedia>> getUpcomingMovies({int page = 1}) =>
       _mediaPage('/discover/movies/upcoming', page, 'movie');
 

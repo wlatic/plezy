@@ -216,4 +216,60 @@ void main() {
     expect(hubs.map((h) => h.title), ['Trending 99', 'Nature', 'Trending 10764']);
     expect(seen, containsAll(['type=shows&genre=99', 'type=shows&genre=10764']));
   });
+
+  test('list rows: top 10s, New & Popular, generated rows and themed lists, each part on its own', () async {
+    final client = HolyArrsClient(
+      _creds,
+      httpClient: MockClient((request) async {
+        final path = request.url.path;
+        Map<String, Object?> row(String id, String title, {String kind = 'movie'}) => {
+          'id': id,
+          'title': title,
+          'items': [for (var i = 0; i < 4; i++) _title(id: '${100 + i}', kind: kind)],
+        };
+        final body = switch (path) {
+          '/api/v1/explore/service-top' => {
+            'services': [
+              {
+                'key': 'netflix',
+                'name': 'Netflix',
+                'items': [for (var i = 0; i < 4; i++) _title(id: '${200 + i}', kind: 'movie')],
+              },
+              {
+                'key': 'hulu',
+                'name': 'Hulu',
+                'items': [_title(kind: 'show')],
+              },
+            ],
+          },
+          '/api/v1/explore/new' => {
+            'rows': [row('np_acclaimed', 'Critically acclaimed new releases')],
+          },
+          '/api/v1/explore/tail' => null,
+          '/api/v1/explore/strip' => {
+            'tiles': [
+              {'name': 'Action', 'category': ''},
+              {'name': 'Based on a true story', 'category': 'true-story'},
+            ],
+          },
+          '/api/v1/explore/browse/category' => {
+            'name': 'Based on a true story',
+            'items': [for (var i = 0; i < 4; i++) _title(id: '${300 + i}', kind: 'movie')],
+          },
+          _ => null,
+        };
+        // The generated rows fail: the rest must still show.
+        if (body == null) return http.Response('{"text":"down"}', 500);
+        return http.Response(jsonEncode(body), 200);
+      }),
+    );
+    final hubs = await HolyArrsCatalogSource(client).fetchListHubs(MediaKind.movie);
+    expect(hubs.map((h) => h.title), [
+      'Top 10 on Netflix',
+      'Critically acclaimed new releases',
+      'Based on a true story',
+    ]);
+    // Hulu's list had no films (and too few titles), so it is left out.
+    expect(hubs.first.id, 'movies:top:top:netflix');
+  });
 }

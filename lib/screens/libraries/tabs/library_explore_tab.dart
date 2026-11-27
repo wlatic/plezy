@@ -17,6 +17,7 @@ import '../../../models/catalog/catalog_item.dart';
 import '../../../providers/catalog_sources_provider.dart';
 import '../../../providers/explore_provider.dart';
 import '../../../services/catalog/catalog_source.dart';
+import '../../../services/catalog/seerr_catalog_source.dart';
 import '../../../utils/app_logger.dart';
 import '../../../utils/platform_detector.dart';
 import '../../../utils/provider_extensions.dart';
@@ -101,14 +102,15 @@ class _LibraryExploreTabState extends BaseLibraryTabState<MediaHub, LibraryExplo
     final holyarrs = sources.holyarrsSource;
     final holyarrsHubs = holyarrs == null || _isAnime
         ? null
-        : await holyarrs
-              .fetchKindHubs(kind, limit: ExploreProvider.rowLimit)
-              .then<List<CatalogHub>?>((h) => h)
-              .catchError((Object e) {
-                // A revoked key or HolyArrs being down falls back to Seerr.
-                appLogger.w('Library explore: HolyArrs rows failed', error: e);
-                return null;
-              });
+        : await Future.wait([
+            holyarrs.fetchKindHubs(kind, limit: ExploreProvider.rowLimit),
+            // Lists are extra: their failure must not hide the personal rows.
+            holyarrs.fetchListHubs(kind, limit: ExploreProvider.rowLimit).catchError((Object _) => <CatalogHub>[]),
+          ]).then<List<CatalogHub>?>((parts) => [...parts[0], ...parts[1]]).catchError((Object e) {
+            // A revoked key or HolyArrs being down falls back to Seerr.
+            appLogger.w('Library explore: HolyArrs rows failed', error: e);
+            return null;
+          });
     if (holyarrsHubs != null) {
       final hubs = holyarrsHubs;
       return [
@@ -158,8 +160,20 @@ class _LibraryExploreTabState extends BaseLibraryTabState<MediaHub, LibraryExplo
             }
           }(),
     ]);
-    // Keep the source's own row order rather than completion order.
-    final order = [for (final row in source.supportedRows) 'library-explore.${widget.library.id}.${row.name}'];
+    if (source is SeerrCatalogSource && (kind == MediaKind.movie || kind == MediaKind.show)) {
+      try {
+        final page = await source.fetchTopRated(kind);
+        hubs.add(hub('toprated', 'Top Rated of All Time', page.items));
+      } catch (e) {
+        appLogger.w('Library explore: Seerr top rated failed', error: e);
+      }
+    }
+    // Keep the source's own row order rather than completion order; Top
+    // Rated goes last.
+    final order = [
+      for (final row in source.supportedRows) 'library-explore.${widget.library.id}.${row.name}',
+      'library-explore.${widget.library.id}.toprated',
+    ];
     hubs.sort((a, b) => order.indexOf(a.id).compareTo(order.indexOf(b.id)));
     return hubs.where((hub) => hub.items.isNotEmpty).toList();
   }

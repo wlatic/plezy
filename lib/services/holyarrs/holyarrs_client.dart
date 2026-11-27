@@ -253,6 +253,83 @@ class HolyArrsClient {
     ];
   }
 
+  static List<HolyArrsRow> _rows(Object? rows) => rows is! List
+      ? const []
+      : [
+          for (final row in rows)
+            if (row is Map && row['id'] is String && row['title'] is String)
+              HolyArrsRow(
+                id: row['id'] as String,
+                title: row['title'] as String,
+                items: [
+                  for (final item in (row['items'] as List? ?? const []))
+                    if (HolyArrsTitle.fromJson(item) case final HolyArrsTitle title) title,
+                ],
+              ),
+        ];
+
+  /// Each streaming service's top 10 today in [region] (a country code),
+  /// for `all`, `movies` or `shows`, as "Top 10 on Netflix" rows.
+  Future<List<HolyArrsRow>> serviceTops(String type, {required String region}) async {
+    final data = await _send('GET', '/api/v1/explore/service-top', query: {'type': type, 'region': region});
+    final services = data is Map ? data['services'] : null;
+    if (services is! List) return const [];
+    return [
+      for (final service in services)
+        if (service is Map && service['key'] is String && service['name'] is String)
+          HolyArrsRow(
+            id: 'top:${service['key']}',
+            title: 'Top 10 on ${service['name']}',
+            items: [
+              for (final item in (service['items'] as List? ?? const []))
+                if (HolyArrsTitle.fromJson(item) case final HolyArrsTitle title) title,
+            ],
+          ),
+    ];
+  }
+
+  /// The New & Popular page's rows (Critically acclaimed new releases, ...).
+  Future<List<HolyArrsRow>> newRows(String type) async {
+    final data = await _send('GET', '/api/v1/explore/new', query: {'type': type});
+    return _rows(data is Map ? data['rows'] : null);
+  }
+
+  /// Explore's generated rows after the head (More from an actor, decades,
+  /// Because you have ...), four per [page].
+  Future<List<HolyArrsRow>> tailRows(String type, {int page = 0}) async {
+    final data = await _send('GET', '/api/v1/explore/tail', query: {'type': type, 'page': '$page'});
+    return _rows(data is Map ? data['rows'] : null);
+  }
+
+  /// The Browse strip's themed lists for [type] (Holiday, Based on a true
+  /// story, Award winners, ...) as (category id, name), skipping plain genres.
+  Future<List<({String id, String name})>> browseCategories(String type) async {
+    final data = await _send('GET', '/api/v1/explore/strip', query: {'type': type});
+    final tiles = data is Map ? data['tiles'] : null;
+    if (tiles is! List) return const [];
+    return [
+      for (final tile in tiles)
+        if (tile is Map &&
+            tile['category'] is String &&
+            (tile['category'] as String).isNotEmpty &&
+            tile['name'] is String)
+          (id: tile['category'] as String, name: tile['name'] as String),
+    ];
+  }
+
+  /// One themed list's titles, most popular first.
+  Future<HolyArrsRow> browseCategory(String type, ({String id, String name}) category) async {
+    final data = await _send('GET', '/api/v1/explore/browse/category', query: {'type': type, 'id': category.id});
+    return HolyArrsRow(
+      id: 'list:${category.id}',
+      title: data is Map && data['name'] is String ? data['name'] as String : category.name,
+      items: [
+        for (final item in (data is Map ? data['items'] as List? ?? const [] : const []))
+          if (HolyArrsTitle.fromJson(item) case final HolyArrsTitle title) title,
+      ],
+    );
+  }
+
   /// HolyArrs's page for one TMDB genre of `movies` or `shows`: Trending,
   /// Best new, Because you have, Top-rated classics and mood rows.
   Future<List<HolyArrsRow>> genreRows(String type, int genreId) async {
